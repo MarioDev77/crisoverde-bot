@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Crisoverde Bot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=Space+Mono:wght@700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --g50:  #E1F5EE;
+      --g100: #9FE1CB;
+      --g200: #5DCAA5;
+      --g400: #1D9E75;
+      --g600: #0F6E56;
+      --g800: #085041;
+      --g900: #04342C;
+      --amb:  #FAEEDA;
+      --ambt: #633806;
+      --bg:   #ffffff;
+      --bg2:  #f5f5f3;
+      --bg3:  #eeede8;
+      --tx:   #1a1a18;
+      --tx2:  #5a5a56;
+      --bd:   rgba(0,0,0,.10);
+      --bd2:  rgba(0,0,0,.18);
+      --r:    12px;
+      --rs:   8px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #18201e; --bg2: #1f2b27; --bg3: #263029;
+        --tx: #e8f0ec; --tx2: #8aada0;
+        --bd: rgba(255,255,255,.10); --bd2: rgba(255,255,255,.18);
+      }
+    }
+
+    html, body { height: 100%; background: var(--bg3); font-family: 'Sora', sans-serif; color: var(--tx); }
+    body { display: flex; align-items: center; justify-content: center; padding: 16px; }
+
+    .app {
+      width: 100%; max-width: 520px;
+      height: min(700px, calc(100vh - 32px));
+      background: var(--bg); border-radius: var(--r);
+      border: 0.5px solid var(--bd);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* TOPBAR */
+    .topbar {
+      background: var(--g800); height: 60px; padding: 0 18px;
+      display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+    }
+    .t-ava {
+      width: 38px; height: 38px; background: var(--g600);
+      border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .t-ava i { font-size: 20px; color: var(--g100); }
+    .t-name { font-size: 14px; font-weight: 600; color: var(--g50); }
+    .t-sub  { font-size: 11px; color: var(--g200); margin-top: 1px; }
+    .t-dot  { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--g100); }
+    .dot { width: 7px; height: 7px; background: var(--g200); border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+    /* NAV */
+    .nav { display: flex; border-bottom: 0.5px solid var(--bd); background: var(--bg2); flex-shrink: 0; }
+    .nav-btn {
+      flex: 1; padding: 9px 4px; font-size: 11px; font-weight: 500; letter-spacing: .03em;
+      color: var(--tx2); background: transparent; border: none; border-bottom: 2px solid transparent;
+      cursor: pointer; transition: all .15s; font-family: 'Sora', sans-serif;
+    }
+    .nav-btn i { font-size: 15px; display: block; margin: 0 auto 2px; }
+    .nav-btn.active { color: var(--g600); border-bottom-color: var(--g600); }
+
+    /* PANELS */
+    .panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+    .panel.active { display: flex; }
+
+    /* CHAT */
+    .msgs { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+    .msgs::-webkit-scrollbar { width: 3px; }
+    .msgs::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 4px; }
+
+    .row { display: flex; gap: 8px; max-width: 88%; animation: fu .2s ease; }
+    .row.me { align-self: flex-end; flex-direction: row-reverse; }
+    @keyframes fu { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:none} }
+
+    .ava { width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; }
+    .ava.bot { background: var(--g800); color: var(--g100); }
+    .ava.me  { background: #e6f1fb; color: #0c447c; }
+
+    .bub { padding: 9px 13px; border-radius: 14px; font-size: 13px; line-height: 1.6; }
+    .bub.bot { background: var(--bg2); border: 0.5px solid var(--bd); border-bottom-left-radius: 3px; color: var(--tx); }
+    .bub.me  { background: var(--g600); color: #e1f5ee; border-bottom-right-radius: 3px; }
+    .bub strong { font-weight: 500; }
+
+    .typing { display: flex; gap: 4px; padding: 4px 0; align-items: center; }
+    .typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--g200); animation: bob 1.1s infinite; }
+    .typing span:nth-child(2) { animation-delay: .18s; }
+    .typing span:nth-child(3) { animation-delay: .36s; }
+    @keyframes bob { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-5px)} }
+
+    .coin-tag {
+      display: inline-flex; align-items: center; gap: 3px;
+      background: var(--amb); color: var(--ambt);
+      padding: 1px 7px; border-radius: 10px;
+      font-size: 11px; font-weight: 600; font-family: 'Space Mono', monospace;
+    }
+
+    .chips { padding: 10px 14px; display: flex; flex-wrap: wrap; gap: 6px; border-top: 0.5px solid var(--bd); background: var(--bg2); }
+    .chip {
+      font-size: 11px; padding: 5px 11px;
+      border: 0.5px solid var(--g400); border-radius: 20px;
+      color: var(--g800); background: var(--g50);
+      cursor: pointer; transition: all .15s; font-family: 'Sora', sans-serif;
+    }
+    .chip:hover { background: var(--g400); color: #fff; border-color: var(--g400); }
+
+    .bar { padding: 10px 14px; display: flex; gap: 8px; align-items: center; border-top: 0.5px solid var(--bd); background: var(--bg); }
+    .inp {
+      flex: 1; border: 0.5px solid var(--bd2); border-radius: 20px; padding: 9px 14px;
+      font-size: 13px; font-family: 'Sora', sans-serif; color: var(--tx);
+      background: var(--bg2); outline: none; transition: border .15s;
+    }
+    .inp:focus { border-color: var(--g600); }
+    .sbtn {
+      width: 36px; height: 36px; background: var(--g800); border: none; border-radius: 50%;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      color: var(--g100); transition: background .15s, transform .1s; flex-shrink: 0;
+    }
+    .sbtn:hover { background: var(--g900); }
+    .sbtn:active { transform: scale(.94); }
+    .sbtn i { font-size: 15px; }
+
+    /* INFO PANELS */
+    .scroll { flex: 1; overflow-y: auto; padding: 16px; }
+    .scroll::-webkit-scrollbar { width: 3px; }
+    .scroll::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 4px; }
+
+    .sec { margin-bottom: 20px; }
+    .sec-lbl { font-size: 10px; font-weight: 600; letter-spacing: .1em; color: var(--g600); border-bottom: 0.5px solid var(--g100); padding-bottom: 6px; margin-bottom: 12px; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+    .card { background: var(--bg2); border: 0.5px solid var(--bd); border-radius: var(--rs); padding: 12px; }
+    .card i { font-size: 20px; color: var(--g400); display: block; margin-bottom: 6px; }
+    .card-t { font-size: 12px; font-weight: 500; color: var(--tx); margin-bottom: 3px; }
+    .card-d { font-size: 11px; color: var(--tx2); line-height: 1.5; }
+
+    .mat-list { display: flex; flex-direction: column; gap: 8px; }
+    .mat { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: var(--bg2); border: 0.5px solid var(--bd); border-radius: var(--rs); }
+    .mat-ic { width: 32px; height: 32px; border-radius: 50%; background: var(--g50); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .mat-ic i { font-size: 16px; color: var(--g800); }
+    .mat-n { font-size: 12px; font-weight: 500; color: var(--tx); }
+    .mat-d { font-size: 11px; color: var(--tx2); margin-top: 2px; }
+
+    .coin-hero { display: flex; align-items: center; gap: 14px; background: var(--g50); border: 0.5px solid var(--g100); border-radius: var(--rs); padding: 14px 16px; margin-bottom: 16px; }
+    .coin-c { width: 48px; height: 48px; border-radius: 50%; background: var(--g800); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .coin-c i { font-size: 22px; color: var(--g100); }
+    .coin-v { font-size: 24px; font-weight: 600; color: var(--g800); font-family: 'Space Mono', monospace; }
+    .coin-s { font-size: 11px; color: var(--g600); margin-top: 2px; }
+
+    .steps { display: flex; flex-direction: column; }
+    .step { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 0.5px solid var(--bd); }
+    .step:last-child { border-bottom: none; }
+    .step-n { width: 22px; height: 22px; border-radius: 50%; background: var(--g800); color: var(--g50); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+    .step-t { font-size: 12px; color: var(--tx); line-height: 1.55; padding-top: 2px; }
+    .step-t strong { font-weight: 500; color: var(--g600); }
+
+    .err { font-size: 12px; color: #a32d2d; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- TOPBAR -->
+  <div class="topbar">
+   
+<div class="t-ava"><img src="img/logo-insta.png" style="width:38px;height:38px;border-radius:50%;object-fit:cover;" /></div>
+
+    <div>
+      <div class="t-name">Crisoverde Bot</div>
+      <div class="t-sub">Crisópolis, Bahia · Economia Circular</div>
+    </div>
+    <div class="t-dot"><div class="dot"></div>online</div>
+  </div>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <button class="nav-btn active" onclick="tab('chat',this)"><i class="ti ti-message-circle"></i>chat</button>
+    <button class="nav-btn" onclick="tab('sobre',this)"><i class="ti ti-info-circle"></i>sobre</button>
+    <button class="nav-btn" onclick="tab('materiais',this)"><i class="ti ti-recycle"></i>materiais</button>
+    <button class="nav-btn" onclick="tab('moeda',this)"><i class="ti ti-coin"></i>crisomoeda</button>
+  </nav>
+
+  <!-- CHAT -->
+  <section class="panel active" id="panel-chat">
+    <div class="msgs" id="msgs"></div>
+    <div class="chips">
+      <button class="chip" onclick="q('O que é a Crisoverde?')">O que é a Crisoverde?</button>
+      <button class="chip" onclick="q('Quanto vale a Crisomoeda?')">Quanto vale a Crisomoeda?</button>
+      <button class="chip" onclick="q('Quais materiais posso reciclar?')">Materiais aceitos</button>
+      <button class="chip" onclick="q('Como ganhar Crisomoedas?')">Como ganhar moedas?</button>
+      <button class="chip" onclick="q('O que é o CrisoApp?')">CrisoApp</button>
+      <button class="chip" onclick="q('Como funciona a coleta seletiva?')">Coleta seletiva</button>
+      <button class="chip" onclick="q('O que causa o aquecimento global?')">Aquecimento global</button>
+      <button class="chip" onclick="q('Como ajudar o planeta?')">Como ajudar o planeta?</button>
+    </div>
+    <div class="bar">
+      <input class="inp" id="inp" type="text" placeholder="Digite sua mensagem..." autocomplete="off" />
+      <button class="sbtn" id="sbtn"><i class="ti ti-send"></i></button>
+    </div>
+  </section>
+
+  <!-- SOBRE -->
+  <section class="panel" id="panel-sobre">
+    <div class="scroll">
+      <div class="sec">
+        <p class="sec-lbl">PROJETOS DO ECOSSISTEMA</p>
+        <div class="grid">
+          <div class="card"><i class="ti ti-leaf"></i><div class="card-t">Crisoverde</div><div class="card-d">Plataforma de reciclagem e educação ambiental em Crisópolis, BA.</div></div>
+          <div class="card"><i class="ti ti-device-mobile"></i><div class="card-t">CrisoApp</div><div class="card-d">App com QR Code, carteira digital, pontos de coleta e metas ecológicas.</div></div>
+          <div class="card"><i class="ti ti-world"></i><div class="card-t">Crisoverde Digital</div><div class="card-d">Plataforma web para cadastro, saldo e histórico de entregas.</div></div>
+          <div class="card"><i class="ti ti-coin"></i><div class="card-t">Crisomoeda</div><div class="card-d">Moeda social digital. R$0,25 por unidade. Troque em lojas parceiras.</div></div>
+        </div>
+      </div>
+      <div class="sec">
+        <p class="sec-lbl">PILARES DO PROJETO</p>
+        <div class="grid">
+          <div class="card"><i class="ti ti-plant-2"></i><div class="card-t">Sustentabilidade</div><div class="card-d">Redução de resíduos e preservação ambiental.</div></div>
+          <div class="card"><i class="ti ti-refresh"></i><div class="card-t">Economia circular</div><div class="card-d">Resíduo vira recurso. Ciclo contínuo de valor.</div></div>
+          <div class="card"><i class="ti ti-school"></i><div class="card-t">Educação</div><div class="card-d">Ambiental e financeira para toda a comunidade.</div></div>
+          <div class="card"><i class="ti ti-users"></i><div class="card-t">Impacto social</div><div class="card-d">Geração de renda e inclusão digital local.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MATERIAIS -->
+  <section class="panel" id="panel-materiais">
+    <div class="scroll">
+      <div class="sec">
+        <p class="sec-lbl">MATERIAIS ACEITOS NA COLETA</p>
+        <div class="mat-list">
+          <div class="mat"><div class="mat-ic"><i class="ti ti-file"></i></div><div><div class="mat-n">Papel</div><div class="mat-d">Papelão, jornais, revistas, cadernos, caixas, papel kraft</div></div></div>
+          <div class="mat"><div class="mat-ic"><i class="ti ti-bottle"></i></div><div><div class="mat-n">Plástico</div><div class="mat-d">Garrafas PET, sacolas, embalagens, tampinhas, potes</div></div></div>
+          <div class="mat"><div class="mat-ic"><i class="ti ti-tools"></i></div><div><div class="mat-n">Metal</div><div class="mat-d">Alumínio, ferro, cobre, aço, latas de bebidas</div></div></div>
+          <div class="mat"><div class="mat-ic"><i class="ti ti-glass"></i></div><div><div class="mat-n">Vidro</div><div class="mat-d">Garrafas, potes e frascos de vidro</div></div></div>
+          <div class="mat"><div class="mat-ic"><i class="ti ti-cpu"></i></div><div><div class="mat-n">Eletrônicos</div><div class="mat-d">Cabos, celulares antigos, carregadores, peças, baterias</div></div></div>
+        </div>
+      </div>
+      <div class="sec">
+        <p class="sec-lbl">CORES DAS LIXEIRAS</p>
+        <div class="grid">
+          <div class="card"><i class="ti ti-circle-filled" style="color:#2563eb"></i><div class="card-t">Azul</div><div class="card-d">Papel e papelão</div></div>
+          <div class="card"><i class="ti ti-circle-filled" style="color:#dc2626"></i><div class="card-t">Vermelho</div><div class="card-d">Plástico</div></div>
+          <div class="card"><i class="ti ti-circle-filled" style="color:#16a34a"></i><div class="card-t">Verde</div><div class="card-d">Vidro</div></div>
+          <div class="card"><i class="ti ti-circle-filled" style="color:#ca8a04"></i><div class="card-t">Amarelo</div><div class="card-d">Metal</div></div>
+          <div class="card"><i class="ti ti-circle-filled" style="color:#92400e"></i><div class="card-t">Marrom</div><div class="card-d">Orgânico</div></div>
+          <div class="card"><i class="ti ti-circle-filled" style="color:#6b7280"></i><div class="card-t">Cinza</div><div class="card-d">Rejeito (não reciclável)</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CRISOMOEDA -->
+  <section class="panel" id="panel-moeda">
+    <div class="scroll">
+      <div class="sec">
+        <p class="sec-lbl">CRISOMOEDA</p>
+        <div class="coin-hero">
+          <div class="coin-c"><i class="ti ti-coin"></i></div>
+          <div>
+            <div class="coin-v">R$ 0,25</div>
+            <div class="coin-s">por Crisomoeda · moeda social digital</div>
+          </div>
+        </div>
+      </div>
+      <div class="sec">
+        <p class="sec-lbl">COMO FUNCIONA</p>
+        <div class="steps">
+          <div class="step"><div class="step-n">1</div><div class="step-t"><strong>Entregue</strong> material reciclável num ponto de coleta cadastrado</div></div>
+          <div class="step"><div class="step-n">2</div><div class="step-t"><strong>Validação</strong> — material é pesado e verificado no local</div></div>
+          <div class="step"><div class="step-n">3</div><div class="step-t"><strong>Crédito</strong> automático de Crisomoedas no seu saldo</div></div>
+          <div class="step"><div class="step-n">4</div><div class="step-t"><strong>Troque</strong> em lojas parceiras por descontos e benefícios</div></div>
+        </div>
+      </div>
+      <div class="sec">
+        <p class="sec-lbl">ONDE USAR</p>
+        <div class="grid">
+          <div class="card"><i class="ti ti-building-store"></i><div class="card-t">Lojas parceiras</div><div class="card-d">Descontos em comércios locais cadastrados.</div></div>
+          <div class="card"><i class="ti ti-qrcode"></i><div class="card-t">QR Code</div><div class="card-d">Escaneie via CrisoApp para validar e transferir.</div></div>
+          <div class="card"><i class="ti ti-gift"></i><div class="card-t">Benefícios</div><div class="card-d">Promoções exclusivas da rede Crisoverde.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+  const API = "http://localhost:3001/api/chat";
+  let hist = [], busy = false, sid = null;
+
+  function tab(name, el) {
+    document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+    document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
+    document.getElementById("panel-" + name).classList.add("active");
+    el.classList.add("active");
+  }
+
+  function addMsg(role, content, typing) {
+    const box = document.getElementById("msgs");
+    const row = document.createElement("div");
+    row.className = "row" + (role === "me" ? " me" : "");
+    const av = document.createElement("div");
+    av.className = "ava " + (role === "me" ? "me" : "bot");
+    av.innerHTML = role === "bot" ? '<i class="ti ti-leaf" style="font-size:13px"></i>' : "EU";
+    const bub = document.createElement("div");
+    bub.className = "bub " + (role === "me" ? "me" : "bot");
+    bub.innerHTML = typing
+      ? '<div class="typing"><span></span><span></span><span></span></div>'
+      : fmt(content);
+    row.appendChild(av); row.appendChild(bub);
+    box.appendChild(row);
+    box.scrollTop = box.scrollHeight;
+    return bub;
+  }
+
+  function fmt(t) {
+    return t
+      .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*(.*?)\*/g, "<em>$1</em>")
+      .replace(/Crisomoeda(s?)/g, '<span class="coin-tag">🪙 Crisomoeda$1</span>')
+      .replace(/\n\n/g, "<br><br>")
+      .replace(/\n/g, "<br>");
+  }
+
+  async function send(msg) {
+    if (busy || !msg.trim()) return;
+    busy = true;
+    addMsg("me", msg);
+    const tb = addMsg("bot", "", true);
+    try {
+      const res = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: sid, message: msg, history: hist.slice(-20) })
+      });
+      if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || "Erro " + res.status); }
+      const data = await res.json();
+      sid = data.sessionId;
+      hist.push({ role: "user", content: msg });
+      hist.push({ role: "assistant", content: data.reply });
+      if (hist.length > 30) hist = hist.slice(-30);
+      tb.innerHTML = fmt(data.reply);
+    } catch(e) {
+      tb.className += " err";
+      tb.textContent = "⚠️ " + (e.message || "Erro de conexão. Verifique se o servidor está rodando.");
+    }
+    document.getElementById("msgs").scrollTop = 99999;
+    busy = false;
+  }
+
+  function q(text) { document.getElementById("inp").value = text; go(); }
+
+  function go() {
+    const el = document.getElementById("inp");
+    const v = el.value.trim();
+    if (!v || busy) return;
+    el.value = "";
+    send(v);
+  }
+
+  document.getElementById("sbtn").addEventListener("click", go);
+  document.getElementById("inp").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); go(); }
+  });
+
+  setTimeout(() => {
+    addMsg("bot", "Olá! 🌿 Sou o assistente oficial do **Crisoverde**!\n\nPosso te ajudar com:\n• **Crisomoeda** — nossa moeda social digital\n• **Materiais recicláveis** aceitos na coleta\n• **CrisoApp** e plataforma digital\n• Sustentabilidade e meio ambiente\n\nExplore as abas acima ou me pergunte o que quiser! Como posso te ajudar?");
+  }, 300);
+</script>
+</body>
+</html>
