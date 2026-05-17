@@ -4,6 +4,7 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
+import path from "path";
 import routes from "./routes";
 import { logger } from "./logger";
 
@@ -64,20 +65,13 @@ const limiter = rateLimit({
 app.use("/api", limiter);
 app.use("/api", routes);
 
-app.get("/", (_req, res) => {
-  res.json({
-    message: "🌿 Crisoverde Bot API (Groq) — funcionando!",
-    engine: "Groq — LLaMA 3.3 70B Versatile (gratuito)",
-    docs: "/api/health",
-  });
-});
+// Servir o frontend estático
+const frontendPath = path.join(__dirname, "../../frontend");
+app.use(express.static(frontendPath));
 
-app.use((_req, res) => {
-  res.status(404).json({
-    error: "Rota não encontrada.",
-    code: "NOT_FOUND",
-    timestamp: new Date().toISOString(),
-  });
+// Qualquer rota não encontrada serve o frontend
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(frontendPath, "index.html"));
 });
 
 app.listen(PORT, () => {
