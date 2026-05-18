@@ -66,12 +66,17 @@ app.use("/api", limiter);
 app.use("/api", routes);
 
 // Servir o frontend estático
-const frontendPath = path.join(__dirname, "../../frontend");
+const frontendPath = path.join(__dirname, "../../../frontend");
 app.use(express.static(frontendPath));
 
 // Qualquer rota não encontrada serve o frontend
 app.get("*", (_req, res) => {
-  res.sendFile(path.join(frontendPath, "index.html"));
+  const indexPath = path.join(frontendPath, "index.html");
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      res.status(404).json({ error: "Frontend não encontrado.", path: indexPath });
+    }
+  });
 });
 
 app.listen(PORT, () => {
