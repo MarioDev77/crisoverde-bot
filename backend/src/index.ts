@@ -16,9 +16,14 @@ if (!process.env.GROQ_API_KEY) {
   process.exit(1);
 }
 
-const allowedOrigins = (process.env.ALLOWED_ORIGINS || "http://localhost:5500")
-  .split(",")
-  .map((o) => o.trim());
+const allowedOrigins = [
+  "http://localhost:5500",
+  "http://127.0.0.1:5500",
+  "http://localhost:3000",
+  "https://crisoverdedigital.vercel.app",
+  "https://crisoverde-bot-production.up.railway.app",
+  ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()) : []),
+];
 
 app.use(helmet({
   contentSecurityPolicy: {
