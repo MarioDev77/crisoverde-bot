@@ -150,7 +150,7 @@ Atuou diretamente no desenvolvimento e organização do projeto, contribuindo co
 Pedro Davi — Equipe principal
 Participou ativamente do desenvolvimento do projeto, colaborando na criação, estruturação e execução de partes do sistema.
 
-Cauã Argolo — Equipe principal
+kauan Argolo — Equipe principal
 Fez parte da linha de frente do projeto, atuando diretamente no desenvolvimento, organização e execução das atividades principais.
 
 Matheus Antônio — Equipe principal
