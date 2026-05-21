@@ -11,6 +11,9 @@ import { logger } from "./logger";
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
 
+// Necessário para funcionar corretamente atrás de proxy (Railway, Render, etc.)
+app.set("trust proxy", 1);
+
 if (!process.env.GROQ_API_KEY) {
   logger.error("GROQ_API_KEY não definida. Crie o arquivo .env com base no .env.example");
   process.exit(1);
