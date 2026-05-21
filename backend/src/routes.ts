@@ -1,10 +1,13 @@
-import { Router, Request, Response } from "express";
+ import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { getReply } from "./groq";
 import { ChatRequest, ChatResponse, ErrorResponse } from "./types";
+import { extractFromMessage, getMemory, saveMemory, clearMemory } from "./memory";
 import { logger } from "./logger";
 
 const router = Router();
+
+// ─── POST /chat ───────────────────────────────────────────────────────────────
 
 router.post("/chat", async (req: Request, res: Response) => {
   const { sessionId, message, history = [] } = req.body as ChatRequest;
@@ -31,7 +34,15 @@ router.post("/chat", async (req: Request, res: Response) => {
   logger.info("Nova mensagem recebida", { sessionId: sid, msgLength: message.length });
 
   try {
-    const reply = await getReply(message.trim(), history);
+    // 1. Carrega memória atual do usuário
+    const memory = getMemory(sid);
+
+    // 2. Extrai novas informações da mensagem e atualiza memória
+    const updatedMemory = extractFromMessage(message.trim(), memory);
+    saveMemory(sid, updatedMemory);
+
+    // 3. Gera resposta com contexto de memória
+    const reply = await getReply(message.trim(), history, sid);
 
     const response: ChatResponse = {
       reply,
@@ -45,7 +56,9 @@ router.post("/chat", async (req: Request, res: Response) => {
 
     const isKeyError =
       error instanceof Error &&
-      (error.message.includes("401") || error.message.includes("API key") || error.message.includes("auth"));
+      (error.message.includes("401") ||
+        error.message.includes("API key") ||
+        error.message.includes("auth"));
 
     const err: ErrorResponse = {
       error: isKeyError
@@ -59,11 +72,31 @@ router.post("/chat", async (req: Request, res: Response) => {
   }
 });
 
+// ─── DELETE /memory/:sessionId ────────────────────────────────────────────────
+
+router.delete("/memory/:sessionId", (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  clearMemory(sessionId);
+  logger.info("Memória apagada", { sessionId });
+  return res.status(200).json({ message: "Memória apagada com sucesso.", sessionId });
+});
+
+// ─── GET /memory/:sessionId ───────────────────────────────────────────────────
+
+router.get("/memory/:sessionId", (req: Request, res: Response) => {
+  const { sessionId } = req.params;
+  const memory = getMemory(sessionId);
+  return res.status(200).json({ sessionId, memory });
+});
+
+// ─── GET /health ──────────────────────────────────────────────────────────────
+
 router.get("/health", (_req: Request, res: Response) => {
   return res.status(200).json({
     status: "ok",
-    version: "1.0.0",
-    engine: "Groq — LLaMA 3.3 70B",
+    version: "1.1.0",
+    engine: "Groq — LLaMA 3.1 8B",
+    memory: "enabled",
     timestamp: new Date().toISOString(),
   });
 });
