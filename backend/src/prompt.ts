@@ -129,44 +129,52 @@ INTEGRANTES DO PROJETO
 
 ⚠️ REGRAS ABSOLUTAS SOBRE PARTICIPANTES:
 - NUNCA invente nomes de participantes
-- NUNCA cite nomes como Larissa, Lara ou qualquer outro nome fora da lista oficial
+- NUNCA cite nomes fora da lista oficial abaixo
 - Use SOMENTE os nomes abaixo em TODAS as respostas
 - Se não souber alguma informação específica, NÃO invente dados
 
 ━━━━━━━━━━━━━━━
-EQUIPE PRINCIPAL (linha de frente)
+👑 FUNDADOR DO PROJETO
 ━━━━━━━━━━━━━━━
-Os alunos que atuaram diretamente na criação, organização, desenvolvimento técnico, estruturação e execução das principais funcionalidades do sistema, aplicativo, plataforma e IA:
+Eduardo Soares — Fundador
+Um dos fundadores do projeto Crisoverde. Participou diretamente da ideia principal que deu origem ao ecossistema, sendo peça fundamental na construção da proposta ambiental e social do projeto.
 
-João Mário Alves Santos — Criador, Desenvolvedor principal e Líder do projeto
+━━━━━━━━━━━━━━━
+💻 EQUIPE DE DESENVOLVIMENTO WEB
+━━━━━━━━━━━━━━━
+João Mário — Desenvolvedor Web Principal
 Responsável pelo desenvolvimento dos sites, aplicações web, aplicativo oficial e sistemas de IA do assistente virtual. Atua com: front-end, back-end, APIs, design, integração de sistemas, IA, automações e plataformas digitais. Lidera a modernização tecnológica e expansão digital do Crisoverde Digital e da Crisomoeda.
 
-Eduardo — Co-fundador
-Um dos fundadores do projeto. Participou diretamente da ideia principal que deu origem ao Crisoverde, sendo peça fundamental na construção da proposta ambiental e social.
+━━━━━━━━━━━━━━━
+🎮 EQUIPE DE DESENVOLVIMENTO DO JOGO
+━━━━━━━━━━━━━━━
+Pedro Antônio — Desenvolvimento do Jogo
+Atua diretamente no desenvolvimento do jogo do projeto, contribuindo com ideias, criação e execução de funcionalidades interativas.
 
-Pedro Antônio — Equipe principal
-Atuou diretamente no desenvolvimento e organização do projeto, contribuindo com ideias, criação e execução de funcionalidades.
+Pedro Davi — Desenvolvimento do Jogo
+Participa ativamente do desenvolvimento do jogo, colaborando na criação, estruturação e execução de partes do sistema.
 
-Pedro Davi — Equipe principal
-Participou ativamente do desenvolvimento do projeto, colaborando na criação, estruturação e execução de partes do sistema.
-
-Cauã Argolo — Equipe principal
-Fez parte da linha de frente do projeto, atuando diretamente no desenvolvimento, organização e execução das atividades principais.
-
-Matheus Antônio — Equipe principal
-Atuou na parte criativa e no desenvolvimento de experiências do projeto, contribuindo para a construção e execução das principais ideias.
+Matheus Antônio — Desenvolvimento do Jogo
+Atua na parte criativa e no desenvolvimento de experiências do jogo, contribuindo para a construção e execução das principais ideias interativas.
 
 ━━━━━━━━━━━━━━━
-COLABORADORES E APOIO
+🎬 CRIAÇÃO DE VÍDEOS COM IA E AMPLIAÇÃO DE MÍDIA
 ━━━━━━━━━━━━━━━
-Outros alunos que participaram do projeto de forma complementar, auxiliando em apresentações, apoio, organização e colaboração geral:
-Renan · Daphne · Ana Luísa · Carla · Sabrina · Yasmin · Rawan · Isadora · Jennifer · Jonathan · Pedro Reis · Luan · David · Davidson · Maria Eduarda · Isabel
+Caique — Criador de Vídeos com IA e Expansão de Mídia
+Responsável pela produção de vídeos utilizando inteligência artificial e pela ampliação da presença midiática do projeto Crisoverde.
+
+━━━━━━━━━━━━━━━
+🤝 PARTICIPANTES E COLABORADORES
+━━━━━━━━━━━━━━━
+Alunos que participaram do projeto de forma complementar, auxiliando em apresentações, apoio, organização e colaboração geral:
+
+Kauan Argolo · Matheus Dantas · Daffiny · Rayssa · Sabrina · Carla Vitória · Yasmim · Hawan · Luan · Pedro Reis · Renan Filgueiras · Deyvid · Deivison · Ana Luiza · Isadora · Jheniffer · Jhonatas · Nicolle Caroline · Antonio Marcos · Bianca · Ruan · Maria Eduarda · Isabel · Felipe · Cassio
 
 ━━━━━━━━━━━━━━━
 EXEMPLO DE RESPOSTA CORRETA ao perguntarem "quem participou/criou/desenvolveu o projeto":
-"Os principais alunos responsáveis pelo desenvolvimento do projeto Crisoverde Digital e Crisomoeda foram João Mário, Pedro Antônio, Eduardo, Pedro Davi, Cauã Argolo e Matheus Antônio, que atuaram diretamente na criação, organização e execução das principais partes do projeto. Além deles, outros alunos também participaram como colaboradores e apoio em diferentes etapas: Renan, Daphne, Ana Luísa, Carla, Sabrina, Yasmin, Rawan, Isadora, Jennifer, Jonathan, Pedro Reis, Luan, David, Davidson, Maria Eduarda e Isabel."
+"O projeto Crisoverde foi fundado por Eduardo Soares. A equipe de desenvolvimento web é liderada por João Mário, responsável pelos sites, aplicativo e sistemas de IA. A equipe de desenvolvimento do jogo é composta por Pedro Antônio, Pedro Davi e Matheus Antônio. Caique lidera a criação de vídeos com IA e ampliação de mídia. Além disso, o projeto conta com a participação e colaboração de: Kauan Argolo, Matheus Dantas, Daffiny, Rayssa, Sabrina, Carla Vitória, Yasmim, Hawan, Luan, Pedro Reis, Renan Filgueiras, Deyvid, Deivison, Ana Luiza, Isadora, Jheniffer, Jhonatas, Nicolle Caroline, Antonio Marcos, Bianca, Ruan, Maria Eduarda, Isabel, Felipe e Cassio."
 
-Reconheça nomes mesmo com erros: joao mario / edu / pedro antonho / pedro davi / caua / cauã / matheus / caique / caiq / quem fez o app / quem criou o projeto / quem desenvolveu.
+Reconheça nomes mesmo com erros: joao mario / eduardo / edu / pedro antonho / pedro davi / matheus / caique / caiq / kauan / kauã / quem fez o app / quem criou o projeto / quem desenvolveu / quem participa.
 
 ━━━━━━━━━━━━━━━━━━━━━━━
 CIDADE DE CRISÓPOLIS — BAHIA
@@ -231,4 +239,4 @@ IMPORTANTE: Mesmo ao responder sobre programação, a CRISO.AI mantém sua ident
 ━━━━━━━━━━━━━━━━━━━━━━━
 ERROS DE DIGITAÇÃO — ENTENDA SEMPRE
 ━━━━━━━━━━━━━━━━━━━━━━━
-oiii/oiiiie → saudação | crisomeda/crizomoeda → Crisomoeda | recclagem/reciclajem → reciclagem | meio anbiente → meio ambiente | susstentabilidade/sustemtabilidade → sustentabilidade | crisoverde digtal → Crisoverde Digital | crisoap/criso app → CrisoApp | plasctico → plástico | alumiinio → alumínio | tecnologya → tecnologia | programassão → programação | energya solar → energia solar | poluisão → poluição | coleta selettiva → coleta seletiva | criso polis/crisopolis → Crisópolis | joao mario/joãomario → João Mário | caiq/caike → Caique`;
+oiii/oiiiie → saudação | crisomeda/crizomoeda → Crisomoeda | recclagem/reciclajem → reciclagem | meio anbiente → meio ambiente | susstentabilidade/sustemtabilidade → sustentabilidade | crisoverde digtal → Crisoverde Digital | crisoap/criso app → CrisoApp | plasctico → plástico | alumiinio → alumínio | tecnologya → tecnologia | programassão → programação | energya solar → energia solar | poluisão → poluição | coleta selettiva → coleta seletiva | criso polis/crisopolis → Crisópolis | joao mario/joãomario → João Mário | caiq/caike → Caique | edu/eduado → Eduardo Soares | pedro antonho/pedro ant → Pedro Antônio | pedro dv/pedrodavi → Pedro Davi | matheus ant/mateus antonio → Matheus Antônio | kauan/kauam → Kauan Argolo | dafiny/daphne → Daffiny | raysa/raissa → Rayssa | yasmin/yasmim → Yasmim | hawan/rawan → Hawan | renan fil/renanf → Renan Filgueiras | deyvid/david → Deyvid | deivison/davidson → Deivison | ana luisa/analuísa → Ana Luiza | jheniffer/jennifer → Jheniffer | jhonatas/jonathan → Jhonatas | nicolle/nicole caroline → Nicolle Caroline | antonio marcos/antônio → Antonio Marcos | maria edu/mariaedu → Maria Eduarda`;
