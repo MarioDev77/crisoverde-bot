@@ -7,6 +7,7 @@ import {
   getMemory,
   saveMemory,
   clearMemory,
+  cleanOldSessions,
 } from "./memory";
 import { logger } from "./logger";
 
@@ -21,7 +22,6 @@ function requireAdmin(req: Request, res: Response, next: Function) {
   if (!validToken) {
     return res.status(500).json({ error: "ADMIN_TOKEN não configurado no servidor." });
   }
-
   if (!token || token !== validToken) {
     return res.status(401).json({
       error: "Não autorizado.",
@@ -29,8 +29,20 @@ function requireAdmin(req: Request, res: Response, next: Function) {
       timestamp: new Date().toISOString(),
     });
   }
-
   next();
+}
+
+// ─── Sanitização de input ─────────────────────────────────────────────────────
+
+function sanitize(text: string): string {
+  return text
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;")
+    .replace(/\\/g, "")
+    .trim();
 }
 
 // ─── POST /chat ───────────────────────────────────────────────────────────────
@@ -56,22 +68,25 @@ router.post("/chat", async (req: Request, res: Response) => {
     return res.status(400).json(err);
   }
 
-  const sid = sessionId || uuidv4();
+  // Sanitiza a mensagem e o sessionId
+  const cleanMessage = sanitize(message);
+  const sid = sessionId ? sanitize(sessionId).slice(0, 64) : uuidv4();
+
   logger.info("Nova mensagem recebida", {
     sessionId: sid,
-    msgLength: message.length,
+    msgLength: cleanMessage.length,
   });
 
   try {
-    // 1. Carrega memória atual do usuário (agora assíncrono)
+    // 1. Carrega memória atual do usuário
     const memory = await getMemory(sid);
 
     // 2. Extrai novas informações da mensagem e atualiza memória
-    const updatedMemory = extractFromMessage(message.trim(), memory);
+    const updatedMemory = extractFromMessage(cleanMessage, memory);
     await saveMemory(sid, updatedMemory);
 
     // 3. Gera resposta com contexto de memória
-    const reply = await getReply(message.trim(), history, sid);
+    const reply = await getReply(cleanMessage, history, sid);
 
     const response: ChatResponse = {
       reply,
@@ -107,9 +122,7 @@ router.delete("/memory/:sessionId", requireAdmin, async (req: Request, res: Resp
   const { sessionId } = req.params;
   await clearMemory(sessionId);
   logger.info("Memória apagada", { sessionId });
-  return res
-    .status(200)
-    .json({ message: "Memória apagada com sucesso.", sessionId });
+  return res.status(200).json({ message: "Memória apagada com sucesso.", sessionId });
 });
 
 // ─── GET /memory/:sessionId (protegido) ──────────────────────────────────────
@@ -120,12 +133,23 @@ router.get("/memory/:sessionId", requireAdmin, async (req: Request, res: Respons
   return res.status(200).json({ sessionId, memory });
 });
 
+// ─── DELETE /memory (limpar sessões antigas — protegido) ──────────────────────
+
+router.delete("/memory", requireAdmin, async (_req: Request, res: Response) => {
+  const deleted = await cleanOldSessions(30);
+  logger.info(`Limpeza de sessões: ${deleted} removidas`);
+  return res.status(200).json({
+    message: `${deleted} sessões antigas removidas.`,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // ─── GET /health ──────────────────────────────────────────────────────────────
 
 router.get("/health", (_req: Request, res: Response) => {
   return res.status(200).json({
     status: "ok",
-    version: "1.2.0",
+    version: "1.3.0",
     engine: "Groq — LLaMA 3.1 8B",
     memory: "postgresql",
     timestamp: new Date().toISOString(),
