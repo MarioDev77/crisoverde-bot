@@ -630,11 +630,26 @@
 
 <script>
   const API = "https://crisoverde-bot-production.up.railway.app/api/chat";
-  let hist = [], busy = false, sid = null, firstMsg = true;
 
-  const inp  = document.getElementById("inp");
-  const sbtn = document.getElementById("sbtn");
+  // ── Persistência de sessão via localStorage ──────────────────────────────
+  // O sessionId e o histórico sobrevivem ao fechar/reabrir o navegador.
+  // A memória no banco (Railway PostgreSQL) fica associada ao mesmo sessionId.
+  let hist     = JSON.parse(localStorage.getItem("cv_hist") || "[]");
+  let sid      = localStorage.getItem("cv_sid") || null;
+  let busy     = false;
+  let firstMsg = hist.length === 0;
+
+  const inp   = document.getElementById("inp");
+  const sbtn  = document.getElementById("sbtn");
   const msgsEl = document.getElementById("msgs");
+
+  // Restaura mensagens anteriores na tela ao carregar a página
+  if (hist.length > 0) {
+    const ws = document.getElementById("welcome-screen");
+    if (ws) ws.remove();
+    document.getElementById("chips").style.display = "none";
+    hist.forEach(m => addMsg(m.role === "user" ? "me" : "bot", m.content, false));
+  }
 
   /* Auto-resize */
   inp.addEventListener("input", () => {
@@ -693,7 +708,7 @@
     if (busy || !msg.trim()) return;
     busy = true; sbtn.disabled = true;
 
-    // Hide welcome screen & chips on first message
+    // Esconde welcome screen na primeira mensagem
     if (firstMsg) {
       const ws = document.getElementById("welcome-screen");
       if (ws) { ws.style.animation = 'fade-up .2s ease reverse'; setTimeout(() => ws.remove(), 200); }
@@ -712,10 +727,16 @@
       });
       if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || "Erro " + res.status); }
       const data = await res.json();
+
       sid = data.sessionId;
       hist.push({ role: "user", content: msg });
       hist.push({ role: "assistant", content: data.reply });
       if (hist.length > 30) hist = hist.slice(-30);
+
+      // ── Persiste sessionId e histórico no localStorage ──────────────────
+      localStorage.setItem("cv_sid",  sid);
+      localStorage.setItem("cv_hist", JSON.stringify(hist));
+
       tb.innerHTML = fmt(data.reply);
     } catch(e) {
       tb.className += " err";
@@ -745,6 +766,9 @@
   }
 
   function clearChat() {
+    // ── Limpa localStorage junto com o estado em memória ───────────────────
+    localStorage.removeItem("cv_hist");
+    localStorage.removeItem("cv_sid");
     hist = []; sid = null; firstMsg = true;
     msgsEl.innerHTML = '';
     // Re-inject welcome screen

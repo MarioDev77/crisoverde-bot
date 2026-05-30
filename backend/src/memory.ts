@@ -1,34 +1,34 @@
-import fs from "fs";
-import path from "path";
+import { Pool } from "pg";
 import { UserMemory } from "./types";
 
-// Memórias salvas em arquivo JSON local (uma entrada por sessionId)
-const MEMORY_FILE = path.resolve(__dirname, "../data/memories.json");
+// ─── Conexão com o PostgreSQL do Railway ─────────────────────────────────────
 
-// ─── Helpers de I/O ──────────────────────────────────────────────────────────
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }, // obrigatório no Railway
+});
 
-function loadAll(): Record<string, UserMemory> {
-  try {
-    if (!fs.existsSync(MEMORY_FILE)) return {};
-    const raw = fs.readFileSync(MEMORY_FILE, "utf-8");
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
+// ─── Inicialização — cria a tabela se não existir ────────────────────────────
 
-function saveAll(data: Record<string, UserMemory>): void {
-  const dir = path.dirname(MEMORY_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(MEMORY_FILE, JSON.stringify(data, null, 2), "utf-8");
+export async function initDB(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS memories (
+      session_id  TEXT PRIMARY KEY,
+      data        JSONB        NOT NULL,
+      updated_at  TIMESTAMPTZ  DEFAULT NOW()
+    )
+  `);
 }
 
 // ─── API pública ─────────────────────────────────────────────────────────────
 
-export function getMemory(sessionId: string): UserMemory {
-  const all = loadAll();
+export async function getMemory(sessionId: string): Promise<UserMemory> {
+  const res = await pool.query(
+    "SELECT data FROM memories WHERE session_id = $1",
+    [sessionId]
+  );
   return (
-    all[sessionId] ?? {
+    res.rows[0]?.data ?? {
       interesses: [],
       preferencias: [],
       metas: [],
@@ -39,19 +39,26 @@ export function getMemory(sessionId: string): UserMemory {
   );
 }
 
-export function saveMemory(sessionId: string, memory: UserMemory): void {
-  const all = loadAll();
-  all[sessionId] = { ...memory, ultimaConversa: new Date().toISOString() };
-  saveAll(all);
+export async function saveMemory(
+  sessionId: string,
+  memory: UserMemory
+): Promise<void> {
+  const data = { ...memory, ultimaConversa: new Date().toISOString() };
+  await pool.query(
+    `INSERT INTO memories (session_id, data, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (session_id)
+     DO UPDATE SET data = $2, updated_at = NOW()`,
+    [sessionId, JSON.stringify(data)]
+  );
 }
 
-export function clearMemory(sessionId: string): void {
-  const all = loadAll();
-  delete all[sessionId];
-  saveAll(all);
+export async function clearMemory(sessionId: string): Promise<void> {
+  await pool.query("DELETE FROM memories WHERE session_id = $1", [sessionId]);
 }
 
 // ─── Extração automática de dados da mensagem ────────────────────────────────
+// (sem alterações — lógica idêntica ao original)
 
 export function extractFromMessage(
   message: string,
@@ -124,7 +131,10 @@ export function extractFromMessage(
   if (msg.includes("esqueça meu nome") || msg.includes("esquece meu nome")) {
     delete updated.nome;
   }
-  if (msg.includes("esqueça minha cidade") || msg.includes("esquece minha cidade")) {
+  if (
+    msg.includes("esqueça minha cidade") ||
+    msg.includes("esquece minha cidade")
+  ) {
     delete updated.cidade;
   }
 
@@ -132,6 +142,7 @@ export function extractFromMessage(
 }
 
 // ─── Gera bloco de contexto para o system prompt ─────────────────────────────
+// (sem alterações — lógica idêntica ao original)
 
 export function buildMemoryContext(memory: UserMemory): string {
   const lines: string[] = [];
@@ -149,7 +160,9 @@ export function buildMemoryContext(memory: UserMemory): string {
   if (memory.pontuacao_crisomoeda > 0)
     lines.push(`- Crisomoedas acumuladas: ${memory.pontuacao_crisomoeda}`);
   if (memory.ultimaConversa)
-    lines.push(`- Última conversa: ${new Date(memory.ultimaConversa).toLocaleDateString("pt-BR")}`);
+    lines.push(
+      `- Última conversa: ${new Date(memory.ultimaConversa).toLocaleDateString("pt-BR")}`
+    );
 
   if (!lines.length) return "";
 

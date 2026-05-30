@@ -6,10 +6,6 @@ import { logger } from "./logger";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Modelos gratuitos disponíveis no Groq:
-// llama-3.3-70b-versatile  → mais inteligente
-// llama-3.1-8b-instant     → mais rápido e econômico (recomendado)
-// mixtral-8x7b-32768       → bom para contexto longo
 const MODEL = "llama-3.1-8b-instant";
 const MAX_TOKENS = 512;
 const MAX_HISTORY = 10;
@@ -21,9 +17,9 @@ export async function getReply(
 ): Promise<string> {
   const trimmedHistory = history.slice(-MAX_HISTORY);
 
-  // Carrega memória do usuário e monta bloco de contexto
+  // getMemory agora é assíncrono (PostgreSQL)
   const memoryContext = sessionId
-    ? buildMemoryContext(getMemory(sessionId))
+    ? buildMemoryContext(await getMemory(sessionId))
     : "";
 
   const fullSystemPrompt = SYSTEM_PROMPT + memoryContext;

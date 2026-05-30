@@ -1,8 +1,13 @@
- import { Router, Request, Response } from "express";
+import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { getReply } from "./groq";
 import { ChatRequest, ChatResponse, ErrorResponse } from "./types";
-import { extractFromMessage, getMemory, saveMemory, clearMemory } from "./memory";
+import {
+  extractFromMessage,
+  getMemory,
+  saveMemory,
+  clearMemory,
+} from "./memory";
 import { logger } from "./logger";
 
 const router = Router();
@@ -31,15 +36,18 @@ router.post("/chat", async (req: Request, res: Response) => {
   }
 
   const sid = sessionId || uuidv4();
-  logger.info("Nova mensagem recebida", { sessionId: sid, msgLength: message.length });
+  logger.info("Nova mensagem recebida", {
+    sessionId: sid,
+    msgLength: message.length,
+  });
 
   try {
-    // 1. Carrega memória atual do usuário
-    const memory = getMemory(sid);
+    // 1. Carrega memória atual do usuário (agora assíncrono)
+    const memory = await getMemory(sid);
 
     // 2. Extrai novas informações da mensagem e atualiza memória
     const updatedMemory = extractFromMessage(message.trim(), memory);
-    saveMemory(sid, updatedMemory);
+    await saveMemory(sid, updatedMemory);
 
     // 3. Gera resposta com contexto de memória
     const reply = await getReply(message.trim(), history, sid);
@@ -74,18 +82,20 @@ router.post("/chat", async (req: Request, res: Response) => {
 
 // ─── DELETE /memory/:sessionId ────────────────────────────────────────────────
 
-router.delete("/memory/:sessionId", (req: Request, res: Response) => {
+router.delete("/memory/:sessionId", async (req: Request, res: Response) => {
   const { sessionId } = req.params;
-  clearMemory(sessionId);
+  await clearMemory(sessionId);
   logger.info("Memória apagada", { sessionId });
-  return res.status(200).json({ message: "Memória apagada com sucesso.", sessionId });
+  return res
+    .status(200)
+    .json({ message: "Memória apagada com sucesso.", sessionId });
 });
 
 // ─── GET /memory/:sessionId ───────────────────────────────────────────────────
 
-router.get("/memory/:sessionId", (req: Request, res: Response) => {
+router.get("/memory/:sessionId", async (req: Request, res: Response) => {
   const { sessionId } = req.params;
-  const memory = getMemory(sessionId);
+  const memory = await getMemory(sessionId);
   return res.status(200).json({ sessionId, memory });
 });
 
@@ -94,9 +104,9 @@ router.get("/memory/:sessionId", (req: Request, res: Response) => {
 router.get("/health", (_req: Request, res: Response) => {
   return res.status(200).json({
     status: "ok",
-    version: "1.1.0",
+    version: "1.2.0",
     engine: "Groq — LLaMA 3.1 8B",
-    memory: "enabled",
+    memory: "postgresql",
     timestamp: new Date().toISOString(),
   });
 });
