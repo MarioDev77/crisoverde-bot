@@ -7,6 +7,7 @@ import rateLimit from "express-rate-limit";
 import path from "path";
 import routes from "./routes";
 import { logger } from "./logger";
+import { initDB } from "./memory";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -89,6 +90,14 @@ app.get("*", (_req, res) => {
     }
   });
 });
+
+// Inicializa o banco de dados antes de subir o servidor
+initDB()
+  .then(() => logger.info("PostgreSQL: tabela memories pronta ✅"))
+  .catch((err) => {
+    logger.error("Erro ao inicializar banco de dados: " + err);
+    process.exit(1);
+  });
 
 app.listen(PORT, () => {
   logger.info(`🌿 Crisoverde Bot (Groq) rodando em http://localhost:${PORT}`);
