@@ -96,7 +96,7 @@ initDB()
   .then(() => logger.info("PostgreSQL: tabela memories pronta ✅"))
   .catch((err) => {
     logger.error("Erro ao inicializar banco de dados: " + err);
-    process.exit(1);
+    // não mata o servidor — ele tenta conectar nas próximas requisições
   });
 
 app.listen(PORT, () => {
