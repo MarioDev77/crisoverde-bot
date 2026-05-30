@@ -12,6 +12,27 @@ import { logger } from "./logger";
 
 const router = Router();
 
+// ─── Middleware de autenticação admin ─────────────────────────────────────────
+
+function requireAdmin(req: Request, res: Response, next: Function) {
+  const token = req.headers["x-admin-token"];
+  const validToken = process.env.ADMIN_TOKEN;
+
+  if (!validToken) {
+    return res.status(500).json({ error: "ADMIN_TOKEN não configurado no servidor." });
+  }
+
+  if (!token || token !== validToken) {
+    return res.status(401).json({
+      error: "Não autorizado.",
+      code: "UNAUTHORIZED",
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  next();
+}
+
 // ─── POST /chat ───────────────────────────────────────────────────────────────
 
 router.post("/chat", async (req: Request, res: Response) => {
@@ -80,9 +101,9 @@ router.post("/chat", async (req: Request, res: Response) => {
   }
 });
 
-// ─── DELETE /memory/:sessionId ────────────────────────────────────────────────
+// ─── DELETE /memory/:sessionId (protegido) ────────────────────────────────────
 
-router.delete("/memory/:sessionId", async (req: Request, res: Response) => {
+router.delete("/memory/:sessionId", requireAdmin, async (req: Request, res: Response) => {
   const { sessionId } = req.params;
   await clearMemory(sessionId);
   logger.info("Memória apagada", { sessionId });
@@ -91,9 +112,9 @@ router.delete("/memory/:sessionId", async (req: Request, res: Response) => {
     .json({ message: "Memória apagada com sucesso.", sessionId });
 });
 
-// ─── GET /memory/:sessionId ───────────────────────────────────────────────────
+// ─── GET /memory/:sessionId (protegido) ──────────────────────────────────────
 
-router.get("/memory/:sessionId", async (req: Request, res: Response) => {
+router.get("/memory/:sessionId", requireAdmin, async (req: Request, res: Response) => {
   const { sessionId } = req.params;
   const memory = await getMemory(sessionId);
   return res.status(200).json({ sessionId, memory });
