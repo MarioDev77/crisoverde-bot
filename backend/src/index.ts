@@ -30,6 +30,9 @@ const allowedOrigins = [
 ];
 
 app.use(helmet({
+  // Desativa o X-Frame-Options padrão do Helmet (DENY/SAMEORIGIN)
+  // O controle de iframe é feito via frameAncestors no CSP abaixo
+  frameguard: false,
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
@@ -39,7 +42,13 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https://crisoverde-bot-production.up.railway.app", "https://cdn.jsdelivr.net"],
-      frameAncestors: ["'self'", "https://crisoverdedigital.vercel.app", "http://localhost:5500", "http://127.0.0.1:5500"],
+      // Permite que o chatbot seja embedado via iframe apenas no Vercel e localhost
+      frameAncestors: [
+        "'self'",
+        "https://crisoverdedigital.vercel.app",
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+      ],
     },
   },
   crossOriginEmbedderPolicy: false,
