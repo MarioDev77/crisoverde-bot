@@ -3,11 +3,16 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import rateLimit from "express-rate-limit";
 import path from "path";
 import routes from "./routes";
 import { logger } from "./logger";
 import { initDB } from "./memory";
+import { initSecurityDB } from "./security";
+import {
+  ipExtractor,
+  advancedRateLimit,
+  securityLogger,
+} from "./securityMiddleware";
 
 const app = express();
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -29,9 +34,9 @@ const allowedOrigins = [
   ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()) : []),
 ];
 
+// ─── Segurança HTTP (Helmet) ──────────────────────────────────────────────────
+
 app.use(helmet({
-  // Desativa o X-Frame-Options padrão do Helmet (DENY/SAMEORIGIN)
-  // O controle de iframe é feito via frameAncestors no CSP abaixo
   frameguard: false,
   contentSecurityPolicy: {
     directives: {
@@ -42,7 +47,6 @@ app.use(helmet({
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "https://crisoverde-bot-production.up.railway.app", "https://cdn.jsdelivr.net"],
-      // Permite que o chatbot seja embedado via iframe apenas no Vercel e localhost
       frameAncestors: [
         "'self'",
         "https://crisoverdedigital.vercel.app",
@@ -55,6 +59,8 @@ app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
 }));
 
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
@@ -63,33 +69,39 @@ app.use(cors({
       callback(new Error(`Origem não permitida: ${origin}`));
     }
   },
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type"],
+  methods: ["GET", "POST", "DELETE"],
+  allowedHeaders: ["Content-Type", "x-admin-token"],
 }));
+
 app.use(express.json({ limit: "50kb" }));
 app.use(morgan("dev"));
 
-const limiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX || "30", 10),
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    error: "Muitas requisições. Aguarde um momento antes de tentar novamente.",
-    code: "RATE_LIMITED",
-    timestamp: new Date().toISOString(),
-  },
-});
+// ─── Middlewares de Segurança (ordem importa!) ────────────────────────────────
 
-app.use("/api", limiter);
+// 1. Extrai o IP real do cliente (antes de qualquer verificação)
+app.use(ipExtractor);
+
+// 2. Logger de segurança — registra requisições suspeitas e status codes de erro
+app.use("/api", securityLogger);
+
+// 3. Rate limiting avançado com janela deslizante
+//    Substitui o rateLimit básico anterior
+app.use("/api", advancedRateLimit({
+  max: parseInt(process.env.RATE_LIMIT_MAX || "30", 10),
+  windowMinutes: 1,
+}));
+
+// ─── Rotas da API ─────────────────────────────────────────────────────────────
+// O injectionGuard é aplicado diretamente na rota /chat (ver routes.ts),
+// não globalmente, para não interferir em rotas de health/admin.
+
 app.use("/api", routes);
 
-// Servir o frontend estático
-// No Railway: __dirname = /app/dist, frontend copiado para /app/dist/frontend
+// ─── Frontend estático ────────────────────────────────────────────────────────
+
 const frontendPath = path.join(__dirname, "frontend");
 app.use(express.static(frontendPath));
 
-// Qualquer rota não encontrada serve o frontend
 app.get("*", (_req, res) => {
   const indexPath = path.join(frontendPath, "index.html");
   res.sendFile(indexPath, (err) => {
@@ -100,19 +112,32 @@ app.get("*", (_req, res) => {
   });
 });
 
-// Inicializa o banco de dados antes de subir o servidor
-initDB()
-  .then(() => logger.info("PostgreSQL: tabela memories pronta ✅"))
-  .catch((err) => {
-    logger.error("Erro ao inicializar banco de dados: " + err);
-    // não mata o servidor — ele tenta conectar nas próximas requisições
-  });
+// ─── Inicialização do banco de dados ─────────────────────────────────────────
 
-app.listen(PORT, () => {
-  logger.info(`🌿 Crisoverde Bot (Groq) rodando em http://localhost:${PORT}`);
-  logger.info(`Engine: Groq — LLaMA 3.3 70B Versatile (gratuito)`);
-  logger.info(`Ambiente: ${process.env.NODE_ENV || "development"}`);
-  logger.info(`CORS liberado para: ${allowedOrigins.join(", ")}`);
-});
+async function bootstrap() {
+  try {
+    await initDB();
+    logger.info("PostgreSQL: tabela memories pronta ✅");
+  } catch (err) {
+    logger.error("Erro ao inicializar memories: " + err);
+  }
+
+  try {
+    await initSecurityDB();
+  } catch (err) {
+    logger.error("Erro ao inicializar security tables: " + err);
+    // Não mata o servidor — o injectionGuard tem fail-open
+  }
+
+  app.listen(PORT, () => {
+    logger.info(`🌿 Crisoverde Bot (Groq) rodando em http://localhost:${PORT}`);
+    logger.info(`Engine: Groq — LLaMA 3.1 8B Instant`);
+    logger.info(`Ambiente: ${process.env.NODE_ENV || "development"}`);
+    logger.info(`CORS liberado para: ${allowedOrigins.join(", ")}`);
+    logger.info(`Sistema de segurança: ATIVO 🛡️`);
+  });
+}
+
+bootstrap();
 
 export default app;

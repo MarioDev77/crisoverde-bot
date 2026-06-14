@@ -1,7 +1,7 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { getReply } from "./groq";
-import { ChatRequest, ChatResponse, ErrorResponse } from "./types";
+import { ChatRequest, ChatResponse, ErrorResponse, SecurityStatus } from "./types";
 import {
   extractFromMessage,
   getMemory,
@@ -9,6 +9,13 @@ import {
   clearMemory,
   cleanOldSessions,
 } from "./memory";
+import {
+  getIpStatus,
+  unblockIp,
+  getSecurityLogs,
+  cleanOldSecurityData,
+} from "./security";
+import { injectionGuard } from "./securityMiddleware";
 import { logger } from "./logger";
 
 const router = Router();
@@ -46,8 +53,9 @@ function sanitize(text: string): string {
 }
 
 // ─── POST /chat ───────────────────────────────────────────────────────────────
+// injectionGuard é aplicado AQUI (não globalmente) para proteger apenas o chat.
 
-router.post("/chat", async (req: Request, res: Response) => {
+router.post("/chat", injectionGuard, async (req: Request, res: Response) => {
   const { sessionId, message, history = [] } = req.body as ChatRequest;
 
   if (!message || typeof message !== "string" || !message.trim()) {
@@ -68,24 +76,21 @@ router.post("/chat", async (req: Request, res: Response) => {
     return res.status(400).json(err);
   }
 
-  // Sanitiza a mensagem e o sessionId
   const cleanMessage = sanitize(message);
   const sid = sessionId ? sanitize(sessionId).slice(0, 64) : uuidv4();
 
   logger.info("Nova mensagem recebida", {
     sessionId: sid,
+    ip: req.clientIp,
+    riskScore: req.riskScore ?? 0,
     msgLength: cleanMessage.length,
   });
 
   try {
-    // 1. Carrega memória atual do usuário
     const memory = await getMemory(sid);
-
-    // 2. Extrai novas informações da mensagem e atualiza memória
     const updatedMemory = extractFromMessage(cleanMessage, memory);
     await saveMemory(sid, updatedMemory);
 
-    // 3. Gera resposta com contexto de memória
     const reply = await getReply(cleanMessage, history, sid);
 
     const response: ChatResponse = {
@@ -116,7 +121,20 @@ router.post("/chat", async (req: Request, res: Response) => {
   }
 });
 
-// ─── DELETE /memory/:sessionId (protegido) ────────────────────────────────────
+// ─── GET /health ──────────────────────────────────────────────────────────────
+
+router.get("/health", (_req: Request, res: Response) => {
+  return res.status(200).json({
+    status: "ok",
+    version: "1.4.0",
+    engine: "Groq — LLaMA 3.1 8B",
+    memory: "postgresql",
+    security: "active",
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ─── Rotas de memória (protegidas) ───────────────────────────────────────────
 
 router.delete("/memory/:sessionId", requireAdmin, async (req: Request, res: Response) => {
   const { sessionId } = req.params;
@@ -125,15 +143,11 @@ router.delete("/memory/:sessionId", requireAdmin, async (req: Request, res: Resp
   return res.status(200).json({ message: "Memória apagada com sucesso.", sessionId });
 });
 
-// ─── GET /memory/:sessionId (protegido) ──────────────────────────────────────
-
 router.get("/memory/:sessionId", requireAdmin, async (req: Request, res: Response) => {
   const { sessionId } = req.params;
   const memory = await getMemory(sessionId);
   return res.status(200).json({ sessionId, memory });
 });
-
-// ─── DELETE /memory (limpar sessões antigas — protegido) ──────────────────────
 
 router.delete("/memory", requireAdmin, async (_req: Request, res: Response) => {
   const deleted = await cleanOldSessions(30);
@@ -144,14 +158,79 @@ router.delete("/memory", requireAdmin, async (_req: Request, res: Response) => {
   });
 });
 
-// ─── GET /health ──────────────────────────────────────────────────────────────
+// ─── Rotas de segurança (protegidas por admin) ────────────────────────────────
 
-router.get("/health", (_req: Request, res: Response) => {
+/**
+ * GET /security/ip/:ip
+ * Retorna o status de segurança de um IP específico.
+ */
+router.get("/security/ip/:ip", requireAdmin, async (req: Request, res: Response) => {
+  const { ip } = req.params;
+  const record = await getIpStatus(ip);
+
+  if (!record) {
+    return res.status(404).json({
+      error: "IP não encontrado nos registros de segurança.",
+      ip,
+    });
+  }
+
+  const status: SecurityStatus = {
+    ip: record.ip,
+    riskScore: record.riskScore,
+    suspiciousCount: record.suspiciousCount,
+    blockCount: record.blockCount,
+    isBlocked: record.blockedUntil !== null && new Date() < record.blockedUntil,
+    blockedUntil: record.blockedUntil?.toISOString() ?? null,
+    lastAttemptAt: record.lastAttemptAt.toISOString(),
+  };
+
+  return res.status(200).json(status);
+});
+
+/**
+ * GET /security/logs/:ip
+ * Retorna os últimos logs de segurança de um IP.
+ * Query param: ?limit=20 (opcional)
+ */
+router.get("/security/logs/:ip", requireAdmin, async (req: Request, res: Response) => {
+  const { ip } = req.params;
+  const limit = Math.min(parseInt(req.query.limit as string || "20", 10), 100);
+
+  const logs = await getSecurityLogs(ip, limit);
+  return res.status(200).json({ ip, logs, count: logs.length });
+});
+
+/**
+ * POST /security/unblock/:ip
+ * Desbloqueia manualmente um IP e zera seu score de risco.
+ */
+router.post("/security/unblock/:ip", requireAdmin, async (req: Request, res: Response) => {
+  const { ip } = req.params;
+
+  await unblockIp(ip);
+  logger.info("IP desbloqueado manualmente", { ip, by: "admin" });
+
   return res.status(200).json({
-    status: "ok",
-    version: "1.3.0",
-    engine: "Groq — LLaMA 3.1 8B",
-    memory: "postgresql",
+    message: `IP ${ip} desbloqueado com sucesso.`,
+    ip,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * DELETE /security/cleanup
+ * Remove logs e registros de segurança antigos.
+ * Query param: ?days=7 (opcional)
+ */
+router.delete("/security/cleanup", requireAdmin, async (req: Request, res: Response) => {
+  const days = parseInt(req.query.days as string || "7", 10);
+  const deleted = await cleanOldSecurityData(days);
+
+  logger.info(`Limpeza de segurança: ${deleted} registros removidos`);
+  return res.status(200).json({
+    message: `${deleted} registros de segurança antigos removidos.`,
+    days,
     timestamp: new Date().toISOString(),
   });
 });

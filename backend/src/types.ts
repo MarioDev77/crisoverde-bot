@@ -19,6 +19,10 @@ export interface ErrorResponse {
   error: string;
   code: string;
   timestamp: string;
+  /** Quando o bloqueio expira (apenas em respostas 403 de segurança) */
+  blockedUntil?: string;
+  /** Segundos para tentar novamente (apenas em respostas 429) */
+  retryAfterSeconds?: number;
 }
 
 // ─── Memória do usuário ───────────────────────────────────────────────────────
@@ -35,4 +39,16 @@ export interface UserMemory {
   pontuacao_crisomoeda: number;
   historico: string[];           // resumos das conversas anteriores
   ultimaConversa?: string;       // ISO timestamp
+}
+
+// ─── Segurança ────────────────────────────────────────────────────────────────
+
+export interface SecurityStatus {
+  ip: string;
+  riskScore: number;
+  suspiciousCount: number;
+  blockCount: number;
+  isBlocked: boolean;
+  blockedUntil: string | null;
+  lastAttemptAt: string;
 }
