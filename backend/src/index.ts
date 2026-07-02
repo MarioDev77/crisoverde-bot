@@ -110,7 +110,7 @@ app.use(cors({
   },
   credentials: true, // necessário para o navegador enviar/receber o cookie de sessão
   methods: ["GET", "POST", "DELETE"],
-  allowedHeaders: ["Content-Type", "x-admin-token"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-admin-token"],
 }));
 
 app.use(cookieParser());
