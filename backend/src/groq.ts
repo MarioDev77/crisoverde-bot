@@ -10,10 +10,33 @@ const groq = new Groq({
   maxRetries: 0, // retries ficam por conta do withRetry abaixo (mais controle sobre o que é retentável)
 });
 
-const MODEL = "groq/compound"; // modelo com pesquisa na web e execução de código embutidas (Tavily)
+const CHAT_MODEL = "llama-3.1-8b-instant"; // modelo padrão — rápido, leve, cabe folgado no free tier
+const SEARCH_MODEL = "groq/compound"; // só para perguntas que parecem precisar de info em tempo real
 const MAX_TOKENS = 400; // reduzido de 512 — menos margem de resposta, mas menos consumo de TPM
 const MAX_HISTORY = 6; // reduzido de 10 — menos histórico enviado a cada chamada, menos tokens
 const MAX_HISTORY_ITEM_LENGTH = 2000; // mesmo limite aplicado à mensagem atual
+
+/**
+ * Heurística simples pra decidir se a mensagem parece precisar de
+ * informação em tempo real (pesquisa na web) ou se é uma conversa normal.
+ *
+ * Não precisa ser perfeita — o objetivo é só evitar chamar o modelo
+ * `groq/compound` (mais pesado, com limite de tokens por requisição bem
+ * mais apertado) em toda mensagem trivial como "oi", que nem precisa de
+ * pesquisa nenhuma.
+ */
+const SEARCH_KEYWORDS = [
+  "hoje", "agora", "atual", "atualidade", "notícia", "noticia", "última", "ultima",
+  "recente", "resultado", "jogo de", "placar", "cotação", "cotacao", "dólar", "dolar",
+  "preço atual", "preco atual", "lançamento", "lancamento", "clima", "temperatura",
+  "previsão do tempo", "previsao do tempo", "quem ganhou", "está funcionando",
+  "esta funcionando", "caiu", "fora do ar", "essa semana", "esse ano", "este ano",
+];
+
+function needsWebSearch(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return SEARCH_KEYWORDS.some((kw) => normalized.includes(kw));
+}
 
 /**
  * Erros de rede transitórios (conexão fechada no meio da resposta, reset,
@@ -118,21 +141,51 @@ export async function getReply(
     { role: "user", content: userMessage },
   ];
 
+  const wantsSearch = needsWebSearch(userMessage);
+  const primaryModel = wantsSearch ? SEARCH_MODEL : CHAT_MODEL;
+
   logger.debug("Enviando para Groq", {
-    model: MODEL,
+    model: primaryModel,
+    wantsSearch,
     historyLength: trimmedHistory.length,
     msgLength: userMessage.length,
     hasMemory: !!memoryContext,
   });
 
-  const response = await withRetry(() =>
-    groq.chat.completions.create({
-      model: MODEL,
-      messages,
-      max_tokens: MAX_TOKENS,
-      temperature: 0.75,
-    })
-  );
+  async function call(model: string) {
+    return withRetry(() =>
+      groq.chat.completions.create({
+        model,
+        messages,
+        max_tokens: MAX_TOKENS,
+        temperature: 0.75,
+      })
+    );
+  }
+
+  let response;
+  try {
+    response = await call(primaryModel);
+  } catch (error) {
+    // O groq/compound tem um limite de tokens por requisição bem mais
+    // apertado que os modelos normais (por causa da orquestração de
+    // ferramentas embutida). Se ele recusar por tamanho, cai de volta pro
+    // modelo de chat normal em vez de estourar erro pro usuário — só perde
+    // a pesquisa nessa mensagem específica.
+    const isRequestTooLarge =
+      error instanceof Groq.APIError &&
+      (error.status === 413 ||
+        (error as any)?.error?.code === "request_too_large");
+
+    if (wantsSearch && isRequestTooLarge) {
+      logger.warn("groq/compound recusou por tamanho — respondendo sem pesquisa", {
+        error: String(error),
+      });
+      response = await call(CHAT_MODEL);
+    } else {
+      throw error;
+    }
+  }
 
   const reply =
     response.choices[0]?.message?.content ??
