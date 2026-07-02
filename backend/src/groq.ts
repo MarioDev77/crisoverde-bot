@@ -10,7 +10,7 @@ const groq = new Groq({
   maxRetries: 0, // retries ficam por conta do withRetry abaixo (mais controle sobre o que é retentável)
 });
 
-const MODEL = "llama-3.1-8b-instant";
+const MODEL = "groq/compound"; // modelo com pesquisa na web e execução de código embutidas (Tavily)
 const MAX_TOKENS = 400; // reduzido de 512 — menos margem de resposta, mas menos consumo de TPM
 const MAX_HISTORY = 6; // reduzido de 10 — menos histórico enviado a cada chamada, menos tokens
 const MAX_HISTORY_ITEM_LENGTH = 2000; // mesmo limite aplicado à mensagem atual
@@ -138,9 +138,16 @@ export async function getReply(
     response.choices[0]?.message?.content ??
     "Ops! Não consegui responder agora. Tenta de novo? 🌿";
 
+  // `executed_tools` só existe em modelos compound (groq/compound) — mostra
+  // se a resposta usou pesquisa na web e/ou execução de código.
+  const executedTools = (response.choices[0]?.message as any)?.executed_tools;
+
   logger.debug("Resposta recebida do Groq", {
     replyLength: reply.length,
     model: response.model,
+    toolsUsed: Array.isArray(executedTools)
+      ? executedTools.map((t: any) => t.type)
+      : undefined,
   });
 
   return reply;
