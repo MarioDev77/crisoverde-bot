@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { v4 as uuidv4 } from "uuid";
+import { timingSafeEqual } from "crypto";
 import { getReply } from "./groq";
 import { ChatRequest, ChatResponse, ErrorResponse, SecurityStatus } from "./types";
 import {
@@ -15,12 +15,78 @@ import {
   getSecurityLogs,
   cleanOldSecurityData,
 } from "./security";
-import { injectionGuard } from "./securityMiddleware";
+import { injectionGuard, advancedRateLimit } from "./securityMiddleware";
 import { logger } from "./logger";
+import {
+  createUser,
+  findUserByEmail,
+  findUserById,
+  validateRegisterInput,
+  verifyPassword,
+  signToken,
+  touchLastLogin,
+  logChatEvent,
+} from "./auth";
+import { requireAuth, requireAdminRole, COOKIE_NAME } from "./authMiddleware";
+import {
+  getOverview,
+  getNewUsersSeries,
+  getChatEventsSeries,
+  getSecurityEventsSeries,
+  listUsers,
+  metricsPool,
+} from "./metrics";
 
 const router = Router();
 
-// ─── Middleware de autenticação admin ─────────────────────────────────────────
+// ─── Cookies de sessão ─────────────────────────────────────────────────────────
+
+const isProd = process.env.NODE_ENV === "production";
+
+function setSessionCookies(res: Response, token: string, role: string): void {
+  const commonOpts = {
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 dias — mesmo prazo do JWT
+    secure: isProd,
+    sameSite: (isProd ? "none" : "lax") as "none" | "lax",
+    path: "/",
+  };
+
+  // Cookie com o JWT — HttpOnly, JS do navegador nunca consegue ler/roubar via XSS.
+  res.cookie(COOKIE_NAME, token, { ...commonOpts, httpOnly: true });
+
+  // Cookie NÃO HttpOnly só com o papel — usado pelo front (Next.js middleware)
+  // para decidir se mostra/esconde rotas. Nunca é usado para autorizar nada
+  // no backend; a autorização real sempre valida o JWT assinado acima.
+  res.cookie("cv_role", role, { ...commonOpts, httpOnly: false });
+}
+
+function clearSessionCookies(res: Response): void {
+  res.clearCookie(COOKIE_NAME, { path: "/" });
+  res.clearCookie("cv_role", { path: "/" });
+}
+
+// ─── Rate limit dedicado para rotas de autenticação ──────────────────────────
+// Login/cadastro são alvo natural de força bruta — limite bem mais apertado
+// que o rate limit geral da API.
+
+const authRateLimit = advancedRateLimit({ max: 10, windowMinutes: 5 });
+
+// ─── Middleware de autenticação admin (token fixo, mantido por compatibilidade) ─
+
+/** Compara dois tokens em tempo constante, evitando timing attacks. */
+function tokensMatch(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  // Precisa ter o mesmo tamanho para o timingSafeEqual não lançar erro.
+  // Como os tamanhos diferentes já revelam pouca informação (e ainda assim
+  // fazemos a comparação com um buffer do mesmo tamanho de bufA), o retorno
+  // continua false de forma segura.
+  if (bufA.length !== bufB.length) {
+    timingSafeEqual(bufA, bufA); // mantém tempo de execução consistente
+    return false;
+  }
+  return timingSafeEqual(bufA, bufB);
+}
 
 function requireAdmin(req: Request, res: Response, next: Function) {
   const token = req.headers["x-admin-token"];
@@ -29,7 +95,7 @@ function requireAdmin(req: Request, res: Response, next: Function) {
   if (!validToken) {
     return res.status(500).json({ error: "ADMIN_TOKEN não configurado no servidor." });
   }
-  if (!token || token !== validToken) {
+  if (!token || typeof token !== "string" || !tokensMatch(token, validToken)) {
     return res.status(401).json({
       error: "Não autorizado.",
       code: "UNAUTHORIZED",
@@ -52,11 +118,106 @@ function sanitize(text: string): string {
     .trim();
 }
 
-// ─── POST /chat ───────────────────────────────────────────────────────────────
-// injectionGuard é aplicado AQUI (não globalmente) para proteger apenas o chat.
+// ─── POST /auth/register ──────────────────────────────────────────────────────
 
-router.post("/chat", injectionGuard, async (req: Request, res: Response) => {
-  const { sessionId, message, history = [] } = req.body as ChatRequest;
+router.post("/auth/register", authRateLimit, async (req: Request, res: Response) => {
+  const { name, email, password } = req.body ?? {};
+
+  const validationError = validateRegisterInput({ name, email, password });
+  if (validationError) {
+    return res.status(400).json({ error: validationError, code: "INVALID_INPUT" });
+  }
+
+  try {
+    const existing = await findUserByEmail(email);
+    if (existing) {
+      // Mensagem genérica — não confirma nem nega qual campo já existe além do e-mail
+      // (evita enumeração de contas, mas aqui é aceitável informar já que é o próprio
+      // fluxo de cadastro pedindo pra tentar login).
+      return res.status(409).json({ error: "Já existe uma conta com esse e-mail.", code: "EMAIL_TAKEN" });
+    }
+
+    const user = await createUser(name, email, password);
+    const token = signToken(user);
+    setSessionCookies(res, token, user.role);
+
+    logger.info("Novo usuário cadastrado", { userId: user.id, ip: req.clientIp });
+
+    return res.status(201).json({
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    });
+  } catch (err) {
+    logger.error("Erro ao cadastrar usuário", { err: String(err) });
+    return res.status(500).json({ error: "Erro interno ao criar conta.", code: "INTERNAL_ERROR" });
+  }
+});
+
+// ─── POST /auth/login ──────────────────────────────────────────────────────────
+
+router.post("/auth/login", authRateLimit, async (req: Request, res: Response) => {
+  const { email, password } = req.body ?? {};
+
+  if (typeof email !== "string" || typeof password !== "string" || !email || !password) {
+    return res.status(400).json({ error: "E-mail e senha são obrigatórios.", code: "MISSING_FIELDS" });
+  }
+
+  try {
+    const user = await findUserByEmail(email);
+
+    // Mensagem idêntica para "não existe" e "senha errada" — evita
+    // enumeração de contas via diferença de resposta.
+    const genericError = { error: "E-mail ou senha inválidos.", code: "INVALID_CREDENTIALS" };
+
+    if (!user) {
+      return res.status(401).json(genericError);
+    }
+
+    const validPassword = await verifyPassword(password, user.passwordHash);
+    if (!validPassword) {
+      return res.status(401).json(genericError);
+    }
+
+    const token = signToken(user);
+    setSessionCookies(res, token, user.role);
+    await touchLastLogin(user.id);
+
+    logger.info("Login realizado", { userId: user.id, ip: req.clientIp });
+
+    return res.status(200).json({
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    });
+  } catch (err) {
+    logger.error("Erro ao fazer login", { err: String(err) });
+    return res.status(500).json({ error: "Erro interno ao autenticar.", code: "INTERNAL_ERROR" });
+  }
+});
+
+// ─── POST /auth/logout ─────────────────────────────────────────────────────────
+
+router.post("/auth/logout", (_req: Request, res: Response) => {
+  clearSessionCookies(res);
+  return res.status(200).json({ message: "Sessão encerrada." });
+});
+
+// ─── GET /auth/me ──────────────────────────────────────────────────────────────
+
+router.get("/auth/me", requireAuth, (req: Request, res: Response) => {
+  const user = req.user!;
+  return res.status(200).json({
+    user: { id: user.id, name: user.name, email: user.email, role: user.role },
+  });
+});
+
+// ─── POST /chat ───────────────────────────────────────────────────────────────
+// Exige login (requireAuth) — a sessão de memória é sempre a do usuário
+// autenticado (req.user.id), nunca um sessionId enviado pelo cliente.
+// Isso elimina o risco de alguém acessar/sobrescrever a memória de outra
+// pessoa apenas adivinhando ou reaproveitando um sessionId.
+// injectionGuard roda depois, olhando o conteúdo da mensagem.
+
+router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Response) => {
+  const { message, history = [] } = req.body as ChatRequest;
+  const sid = req.user!.id;
 
   if (!message || typeof message !== "string" || !message.trim()) {
     const err: ErrorResponse = {
@@ -77,10 +238,9 @@ router.post("/chat", injectionGuard, async (req: Request, res: Response) => {
   }
 
   const cleanMessage = sanitize(message);
-  const sid = sessionId ? sanitize(sessionId).slice(0, 64) : uuidv4();
 
   logger.info("Nova mensagem recebida", {
-    sessionId: sid,
+    userId: sid,
     ip: req.clientIp,
     riskScore: req.riskScore ?? 0,
     msgLength: cleanMessage.length,
@@ -90,6 +250,7 @@ router.post("/chat", injectionGuard, async (req: Request, res: Response) => {
     const memory = await getMemory(sid);
     const updatedMemory = extractFromMessage(cleanMessage, memory);
     await saveMemory(sid, updatedMemory);
+    await logChatEvent(sid);
 
     const reply = await getReply(cleanMessage, history, sid);
 
@@ -234,5 +395,102 @@ router.delete("/security/cleanup", requireAdmin, async (req: Request, res: Respo
     timestamp: new Date().toISOString(),
   });
 });
+
+// ─── Rotas do painel administrativo (login + papel admin) ────────────────────
+// Diferente das rotas /security e /memory acima (que usam o token fixo
+// x-admin-token, mantidas por compatibilidade), estas usam a sessão de
+// login normal — só usuários com role "admin" passam.
+
+router.get(
+  "/admin/metrics/overview",
+  requireAuth,
+  requireAdminRole,
+  async (_req: Request, res: Response) => {
+    try {
+      const overview = await getOverview();
+      return res.status(200).json(overview);
+    } catch (err) {
+      logger.error("Erro ao buscar overview de métricas", { err: String(err) });
+      return res.status(500).json({ error: "Erro ao buscar métricas." });
+    }
+  }
+);
+
+/**
+ * GET /admin/metrics/series?range=weekly|monthly
+ * Retorna séries diárias para os últimos 7 (weekly) ou 30 (monthly) dias,
+ * prontas para alimentar os gráficos do painel.
+ */
+router.get(
+  "/admin/metrics/series",
+  requireAuth,
+  requireAdminRole,
+  async (req: Request, res: Response) => {
+    const range = req.query.range === "monthly" ? "monthly" : "weekly";
+    const days = range === "monthly" ? 30 : 7;
+
+    try {
+      const [newUsers, chatMessages, securityEvents] = await Promise.all([
+        getNewUsersSeries(days),
+        getChatEventsSeries(days),
+        getSecurityEventsSeries(days),
+      ]);
+
+      return res.status(200).json({ range, days, newUsers, chatMessages, securityEvents });
+    } catch (err) {
+      logger.error("Erro ao buscar séries de métricas", { err: String(err) });
+      return res.status(500).json({ error: "Erro ao buscar séries de métricas." });
+    }
+  }
+);
+
+/**
+ * GET /admin/users?limit=100&offset=0
+ * Lista usuários cadastrados (sem hash de senha, óbvio).
+ */
+router.get(
+  "/admin/users",
+  requireAuth,
+  requireAdminRole,
+  async (req: Request, res: Response) => {
+    const limit = parseInt((req.query.limit as string) || "100", 10);
+    const offset = parseInt((req.query.offset as string) || "0", 10);
+
+    try {
+      const users = await listUsers(limit, offset);
+      return res.status(200).json({ users, count: users.length });
+    } catch (err) {
+      logger.error("Erro ao listar usuários", { err: String(err) });
+      return res.status(500).json({ error: "Erro ao listar usuários." });
+    }
+  }
+);
+
+/**
+ * GET /admin/security/ips?limit=50
+ * Lista os IPs com maior risco / mais bloqueios recentes — reaproveita
+ * a tabela security_ips já existente.
+ */
+router.get(
+  "/admin/security/ips",
+  requireAuth,
+  requireAdminRole,
+  async (req: Request, res: Response) => {
+    const limit = Math.min(parseInt((req.query.limit as string) || "50", 10), 200);
+    try {
+      const result = await metricsPool.query(
+        `SELECT ip, risk_score, suspicious_count, block_count, blocked_until, last_attempt_at
+         FROM security_ips
+         ORDER BY risk_score DESC, last_attempt_at DESC
+         LIMIT $1`,
+        [limit]
+      );
+      return res.status(200).json({ ips: result.rows });
+    } catch (err) {
+      logger.error("Erro ao listar IPs de segurança", { err: String(err) });
+      return res.status(500).json({ error: "Erro ao listar IPs." });
+    }
+  }
+);
 
 export default router;

@@ -1,0 +1,62 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  body {
+    @apply bg-paper text-ink font-body antialiased;
+  }
+  h1, h2, h3, h4 {
+    @apply font-display;
+  }
+  ::selection {
+    @apply bg-gold/30;
+  }
+  :focus-visible {
+    outline: 2px solid theme("colors.forest.DEFAULT");
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full bg-forest px-6 py-3
+           text-sm font-semibold text-white transition-colors hover:bg-forest-dark
+           disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center gap-2 rounded-full border border-line
+           bg-surface px-6 py-3 text-sm font-semibold text-ink transition-colors
+           hover:border-forest hover:text-forest disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .field-label {
+    @apply mb-1.5 block text-sm font-medium text-ink/80;
+  }
+  .field-input {
+    @apply w-full rounded-xl border border-line bg-surface px-4 py-2.5 text-sm text-ink
+           placeholder:text-ink/35 transition-colors focus:border-forest focus:outline-none
+           focus:ring-2 focus:ring-forest/15;
+  }
+  .card {
+    @apply rounded-card border border-line bg-surface shadow-card;
+  }
+}
+
+/* ─── Elemento de assinatura visual ────────────────────────────────────────
+   Linhas de contorno topográfico — remetem a curvas de nível de mapa e,
+   por semelhança, aos anéis de crescimento de uma árvore: cresc. e território,
+   os dois eixos do projeto (educação ambiental + moeda social territorial).
+   Usado como textura sutil de fundo em telas de autenticação e no header
+   do painel administrativo — nunca como decoração isolada. */
+.contour-bg {
+  background-image: repeating-radial-gradient(
+    circle at 15% 20%,
+    rgba(31, 92, 63, 0.055) 0px,
+    rgba(31, 92, 63, 0.055) 1px,
+    transparent 1px,
+    transparent 34px
+  );
+}

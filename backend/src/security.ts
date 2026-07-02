@@ -495,18 +495,24 @@ export async function getSecurityLogs(
 
 /** Remove logs e registro de IPs antigos (chame periodicamente via rota admin) */
 export async function cleanOldSecurityData(days: number = 7): Promise<number> {
+  // Intervalo parametrizado (em vez de interpolar a string) — evita que
+  // qualquer mudança futura na origem de `days` vire um vetor de SQL injection.
+  const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 7;
+
   const res = await pool.query(
     `DELETE FROM security_logs
-     WHERE created_at < NOW() - INTERVAL '${days} days'
-     RETURNING id`
+     WHERE created_at < NOW() - ($1 || ' days')::interval
+     RETURNING id`,
+    [safeDays]
   );
 
   // Remove IPs sem atividade, sem bloqueio ativo e com risco zerado
   await pool.query(
     `DELETE FROM security_ips
-     WHERE updated_at < NOW() - INTERVAL '${days} days'
+     WHERE updated_at < NOW() - ($1 || ' days')::interval
        AND blocked_until IS NULL
-       AND risk_score = 0`
+       AND risk_score = 0`,
+    [safeDays]
   );
 
   return res.rowCount ?? 0;

@@ -3,11 +3,12 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
-import path from "path";
+import cookieParser from "cookie-parser";
 import routes from "./routes";
 import { logger } from "./logger";
 import { initDB } from "./memory";
 import { initSecurityDB } from "./security";
+import { initAuthDB } from "./auth";
 import {
   ipExtractor,
   advancedRateLimit,
@@ -22,6 +23,13 @@ app.set("trust proxy", 1);
 
 if (!process.env.GROQ_API_KEY) {
   logger.error("GROQ_API_KEY não definida. Crie o arquivo .env com base no .env.example");
+  process.exit(1);
+}
+
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
+  logger.error(
+    "JWT_SECRET não definida (ou curta demais). Defina uma string aleatória com pelo menos 32 caracteres, ex: openssl rand -hex 32"
+  );
   process.exit(1);
 }
 
@@ -69,10 +77,12 @@ app.use(cors({
       callback(new Error(`Origem não permitida: ${origin}`));
     }
   },
+  credentials: true, // necessário para o navegador enviar/receber o cookie de sessão
   methods: ["GET", "POST", "DELETE"],
   allowedHeaders: ["Content-Type", "x-admin-token"],
 }));
 
+app.use(cookieParser());
 app.use(express.json({ limit: "50kb" }));
 app.use(morgan("dev"));
 
@@ -97,20 +107,14 @@ app.use("/api", advancedRateLimit({
 
 app.use("/api", routes);
 
-// ─── Frontend estático ────────────────────────────────────────────────────────
+// ─── 404 padrão ───────────────────────────────────────────────────────────────
+// Este backend agora é uma API pura — o frontend (Next.js) mora em ../frontend
+// e é servido separadamente (ex: Vercel). Não há mais HTML estático aqui.
 
-const frontendPath = path.join(__dirname, "frontend");
-app.use(express.static(frontendPath));
-
-app.get("*", (_req, res) => {
-  const indexPath = path.join(frontendPath, "index.html");
-  res.sendFile(indexPath, (err) => {
-    if (err) {
-      logger.error("Frontend não encontrado em: " + indexPath);
-      res.status(404).json({ error: "Frontend não encontrado.", path: indexPath });
-    }
-  });
+app.use((_req, res) => {
+  res.status(404).json({ error: "Rota não encontrada." });
 });
+
 
 // ─── Inicialização do banco de dados ─────────────────────────────────────────
 
@@ -127,6 +131,14 @@ async function bootstrap() {
   } catch (err) {
     logger.error("Erro ao inicializar security tables: " + err);
     // Não mata o servidor — o injectionGuard tem fail-open
+  }
+
+  try {
+    await initAuthDB();
+    logger.info("PostgreSQL: tabelas users e chat_events prontas ✅");
+  } catch (err) {
+    logger.error("Erro ao inicializar auth tables: " + err);
+    process.exit(1); // sem tabela de usuários, login/cadastro não funcionam — melhor falhar cedo
   }
 
   app.listen(PORT, () => {

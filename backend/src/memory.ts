@@ -59,8 +59,12 @@ export async function clearMemory(sessionId: string): Promise<void> {
 
 // Remove sessões sem atividade há X dias — chame periodicamente ou via rota admin
 export async function cleanOldSessions(days: number = 30): Promise<number> {
+  // Intervalo parametrizado (em vez de interpolar a string) — evita que
+  // qualquer mudança futura na origem de `days` vire um vetor de SQL injection.
+  const safeDays = Number.isFinite(days) && days > 0 ? Math.floor(days) : 30;
   const res = await pool.query(
-    `DELETE FROM memories WHERE updated_at < NOW() - INTERVAL '${days} days' RETURNING session_id`
+    `DELETE FROM memories WHERE updated_at < NOW() - ($1 || ' days')::interval RETURNING session_id`,
+    [safeDays]
   );
   return res.rowCount ?? 0;
 }
