@@ -1,4 +1,25 @@
 import "dotenv/config";
+import { setGlobalDispatcher, Agent } from "undici";
+
+// ─── Fix para "FetchError: Premature close" ao chamar a Groq API ────────────
+// O fetch nativo do Node (undici) mantém conexões keep-alive abertas para
+// reuso. Em ambientes como Railway, o servidor remoto (ou um proxy no meio
+// do caminho) às vezes fecha essa conexão um pouco antes do timeout que o
+// Node espera. Quando o Node tenta reaproveitar essa conexão "morta" na
+// próxima requisição, o resultado é exatamente esse erro — de forma
+// intermitente, o que bate com o padrão observado nos logs.
+//
+// A correção é forçar o Node a reciclar conexões ociosas ANTES desse
+// timeout acontecer, configurando um keepAliveTimeout mais curto e
+// conservador que o do servidor remoto.
+setGlobalDispatcher(
+  new Agent({
+    keepAliveTimeout: 4_000, // fecha conexões ociosas após 4s (mais curto que o timeout remoto)
+    keepAliveMaxTimeout: 10_000,
+    connections: 50,
+  })
+);
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
