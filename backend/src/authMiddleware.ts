@@ -11,8 +11,24 @@ declare global {
 
 const COOKIE_NAME = "cv_token";
 
-/** Extrai o token do cookie HttpOnly da requisição. */
+/**
+ * Extrai o token da requisição.
+ *
+ * Tenta primeiro o header `Authorization: Bearer <token>` — necessário porque
+ * navegadores mobile (Safari/iOS via ITP, WebViews de apps como WhatsApp/
+ * Instagram) frequentemente bloqueiam cookies cross-site mesmo com
+ * SameSite=None, então o cookie HttpOnly nunca chega no backend. Nesses
+ * casos o frontend guarda o token em localStorage e manda via header.
+ *
+ * Faz fallback pro cookie HttpOnly (cv_token) pra manter compatibilidade
+ * com o fluxo atual (desktop, onde o cookie funciona normalmente).
+ */
 function getTokenFromRequest(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.slice(7).trim() || null;
+  }
+
   const cookies = (req as any).cookies as Record<string, string> | undefined;
   return cookies?.[COOKIE_NAME] ?? null;
 }

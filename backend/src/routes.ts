@@ -144,8 +144,12 @@ router.post("/auth/register", authRateLimit, async (req: Request, res: Response)
 
     logger.info("Novo usuário cadastrado", { userId: user.id, ip: req.clientIp });
 
+    // token vai também no corpo da resposta — o front guarda em localStorage
+    // e manda via header Authorization como fallback para quando o cookie
+    // cross-site é bloqueado (Safari/iOS, WebViews de apps).
     return res.status(201).json({
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      token,
     });
   } catch (err) {
     logger.error("Erro ao cadastrar usuário", { err: String(err) });
@@ -184,8 +188,12 @@ router.post("/auth/login", authRateLimit, async (req: Request, res: Response) =>
 
     logger.info("Login realizado", { userId: user.id, ip: req.clientIp });
 
+    // token vai também no corpo da resposta — o front guarda em localStorage
+    // e manda via header Authorization como fallback para quando o cookie
+    // cross-site é bloqueado (Safari/iOS, WebViews de apps).
     return res.status(200).json({
       user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      token,
     });
   } catch (err) {
     logger.error("Erro ao fazer login", { err: String(err) });
