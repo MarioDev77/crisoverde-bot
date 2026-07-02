@@ -63,6 +63,16 @@ const allowedOrigins = [
   ...(process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(",").map(o => o.trim()) : []),
 ];
 
+// Previews do Vercel têm URL com hash aleatório a cada deploy
+// (ex: crisoverde-qpyy5xwnt-mariodev77s-projects.vercel.app), então uma
+// lista fixa nunca dá conta. Esse regex libera qualquer preview do seu
+// time no Vercel (mariodev77s-projects), sem abrir pra domínios de terceiros.
+const VERCEL_PREVIEW_REGEX = /^https:\/\/[a-z0-9-]+-mariodev77s-projects\.vercel\.app$/;
+
+function isOriginAllowed(origin: string): boolean {
+  return allowedOrigins.includes(origin) || VERCEL_PREVIEW_REGEX.test(origin);
+}
+
 // ─── Segurança HTTP (Helmet) ──────────────────────────────────────────────────
 
 app.use(helmet({
@@ -92,7 +102,7 @@ app.use(helmet({
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || isOriginAllowed(origin)) {
       callback(null, true);
     } else {
       callback(new Error(`Origem não permitida: ${origin}`));
