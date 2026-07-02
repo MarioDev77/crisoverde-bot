@@ -1,14 +1,12 @@
 /**
  * api.ts — cliente HTTP fino para falar com o backend.
  *
- * As chamadas usam caminho relativo ("/api/...") em vez da URL do Railway
- * direto. Isso faz o navegador enxergar tudo como same-origin (a Vercel
- * proxeia pro Railway via `rewrites` no next.config.mjs) — essencial pro
- * cookie de sessão funcionar de forma consistente em qualquer navegador
- * (veja o comentário em next.config.mjs pra entender o motivo).
- *
- * `credentials: "include"` continua necessário mesmo same-origin, não atrapalha.
+ * `credentials: "include"` é essencial em TODAS as chamadas: é o que faz o
+ * navegador enviar/receber o cookie HttpOnly de sessão (cv_token), mesmo o
+ * front estando em outro domínio (Vercel) do backend (Railway).
  */
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 export class ApiError extends Error {
   status: number;
@@ -22,7 +20,7 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_URL}/api${path}`, {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
