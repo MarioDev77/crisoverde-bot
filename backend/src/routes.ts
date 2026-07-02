@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { timingSafeEqual } from "crypto";
+import Groq from "groq-sdk";
 import { getReply } from "./groq";
 import { ChatRequest, ChatResponse, ErrorResponse, SecurityStatus } from "./types";
 import {
@@ -263,6 +264,23 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
     return res.status(200).json(response);
   } catch (error: unknown) {
     logger.error("Erro ao chamar Groq API", { error: String(error) });
+
+    // Rate limit da Groq (429) — não é uma falha do servidor, é o limite de
+    // uso da conta/plano sendo atingido. Merece uma mensagem própria (e um
+    // 429, não 500) em vez do genérico "erro interno".
+    if (error instanceof Groq.RateLimitError) {
+      const match = String(error.message).match(/try again in ([\d.]+)s/i);
+      const retryAfterSeconds = match ? Math.ceil(parseFloat(match[1])) : 30;
+
+      const err: ErrorResponse = {
+        error: "Estamos com muita gente conversando agora 🌿 Tenta de novo em alguns segundos.",
+        code: "RATE_LIMIT",
+        timestamp: new Date().toISOString(),
+        retryAfterSeconds,
+      };
+      res.set("Retry-After", String(retryAfterSeconds));
+      return res.status(429).json(err);
+    }
 
     const isKeyError =
       error instanceof Error &&

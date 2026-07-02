@@ -11,8 +11,8 @@ const groq = new Groq({
 });
 
 const MODEL = "llama-3.1-8b-instant";
-const MAX_TOKENS = 512;
-const MAX_HISTORY = 10;
+const MAX_TOKENS = 400; // reduzido de 512 — menos margem de resposta, mas menos consumo de TPM
+const MAX_HISTORY = 6; // reduzido de 10 — menos histórico enviado a cada chamada, menos tokens
 const MAX_HISTORY_ITEM_LENGTH = 2000; // mesmo limite aplicado à mensagem atual
 
 /**
