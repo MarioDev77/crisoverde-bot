@@ -10,7 +10,7 @@ const groq = new Groq({
   maxRetries: 0, // retries ficam por conta do withRetry abaixo (mais controle sobre o que é retentável)
 });
 
-const CHAT_MODEL = "llama-3.1-8b-instant"; // modelo padrão — rápido, leve, cabe folgado no free tier
+const CHAT_MODEL = "openai/gpt-oss-20b"; // llama-3.1-8b-instant foi descontinuado pela Groq em 17/06/2026 — este é o substituto recomendado
 const SEARCH_MODEL = "groq/compound"; // só para perguntas que parecem precisar de info em tempo real
 const MAX_TOKENS = 400; // reduzido de 512 — menos margem de resposta, mas menos consumo de TPM
 const MAX_HISTORY = 6; // reduzido de 10 — menos histórico enviado a cada chamada, menos tokens
