@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
-import { api, ApiError } from "./api";
+import { api, ApiError, clearStoredToken } from "./api";
 import type { AuthUser } from "./types";
 
 interface AuthContextValue {
@@ -25,6 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser(data.user);
     } catch {
       setUser(null);
+      clearStoredToken(); // token guardado (se houver) não é mais válido
     } finally {
       setLoading(false);
     }
@@ -46,6 +47,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await api.post("/auth/logout").catch(() => {});
+    clearStoredToken();
     setUser(null);
   }, []);
 
