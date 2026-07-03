@@ -1,20 +1,39 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Leaf, LogOut, Send } from "lucide-react";
+import { Leaf, LogOut, Send, ExternalLink } from "lucide-react";
 import { AuthGuard } from "@/components/AuthGuard";
 import { MessageText } from "@/components/MessageText";
 import { useAuth } from "@/lib/auth-context";
 import { api, ApiError } from "@/lib/api";
-import type { ChatMessage, ChatResponse } from "@/lib/types";
+import type { ChatMessage, ChatResponse, SourceRef } from "@/lib/types";
 
 const MAX_MESSAGE_LENGTH = 2000;
 
+// Mesma heurística leve usada no backend — aqui só liga o indicador visual
+// opcional "Pesquisando na internet...", nunca decide o que é enviado.
+const SEARCH_HINT_KEYWORDS = [
+  "hoje", "agora", "atual", "notícia", "noticia", "última", "ultima", "recente",
+  "resultado", "placar", "cotação", "cotacao", "dólar", "dolar", "clima",
+  "temperatura", "previsão do tempo", "previsao do tempo", "quem ganhou",
+  "está funcionando", "esta funcionando", "caiu", "fora do ar",
+];
+
+function looksLikeSearch(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return SEARCH_HINT_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+// Mensagem exibida na UI, com fontes anexadas quando a resposta usou busca
+// externa. O histórico enviado ao backend continua sendo só {role, content}.
+type UiMessage = ChatMessage & { sources?: SourceRef[] };
+
 function ChatPageContent() {
   const { user, logout } = useAuth();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<UiMessage[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -29,16 +48,20 @@ function ChatPageContent() {
     setError(null);
     setInput("");
     setBusy(true);
+    setSearching(looksLikeSearch(trimmed));
 
-    const nextHistory = [...messages, { role: "user" as const, content: trimmed }];
+    const nextHistory: UiMessage[] = [...messages, { role: "user", content: trimmed }];
     setMessages(nextHistory);
 
     try {
       const data = await api.post<ChatResponse>("/chat", {
         message: trimmed,
-        history: messages.slice(-20),
+        history: messages.slice(-20).map(({ role, content }) => ({ role, content })),
       });
-      setMessages([...nextHistory, { role: "assistant", content: data.reply }]);
+      setMessages([
+        ...nextHistory,
+        { role: "assistant", content: data.reply, sources: data.sources },
+      ]);
     } catch (err) {
       const message =
         err instanceof ApiError ? err.message : "Erro de conexão. Tente novamente.";
@@ -46,6 +69,7 @@ function ChatPageContent() {
       setMessages(nextHistory); // mantém a mensagem do usuário, só não adiciona resposta
     } finally {
       setBusy(false);
+      setSearching(false);
     }
   }
 
@@ -96,13 +120,34 @@ function ChatPageContent() {
                 }`}
               >
                 <MessageText text={m.content} />
+                {m.sources && m.sources.length > 0 && (
+                  <div className="mt-2 border-t border-line/60 pt-2 text-xs text-ink/50">
+                    <p className="mb-1 font-medium">Fontes:</p>
+                    <ul className="space-y-0.5">
+                      {m.sources.map((s, si) => (
+                        <li key={si}>
+                          <a
+                            href={s.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-forest hover:underline"
+                          >
+                            <ExternalLink size={11} />
+                            {s.title}
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             </div>
           ))}
 
           {busy && (
             <div className="flex justify-start">
-              <div className="flex items-center gap-1 rounded-2xl border border-line bg-surface px-4 py-3">
+              <div className="flex items-center gap-2 rounded-2xl border border-line bg-surface px-4 py-3">
+                {searching && <span className="text-xs text-ink/50">Pesquisando na internet...</span>}
                 <Dot /> <Dot delay="150ms" /> <Dot delay="300ms" />
               </div>
             </div>

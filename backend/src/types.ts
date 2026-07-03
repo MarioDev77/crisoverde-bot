@@ -9,10 +9,17 @@ export interface ChatRequest {
   history?: ChatMessage[];
 }
 
+export interface SourceRef {
+  title: string;
+  url: string;
+}
+
 export interface ChatResponse {
   reply: string;
   sessionId: string;
   timestamp: string;
+  /** Presente apenas quando a resposta usou resultados de busca externa. */
+  sources?: SourceRef[];
 }
 
 export interface ErrorResponse {

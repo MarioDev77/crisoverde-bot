@@ -1,8 +1,9 @@
 import Groq from "groq-sdk";
-import { ChatMessage } from "./types";
+import { ChatMessage, SourceRef } from "./types";
 import { SYSTEM_PROMPT } from "./prompt";
 import { buildMemoryContext, getMemory } from "./memory";
 import { logger } from "./logger";
+import { isSearchProviderConfigured, needsWebSearch, webSearch } from "./search";
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -17,25 +18,32 @@ const MAX_HISTORY = 6; // reduzido de 10 — menos histórico enviado a cada cha
 const MAX_HISTORY_ITEM_LENGTH = 2000; // mesmo limite aplicado à mensagem atual
 
 /**
- * Heurística simples pra decidir se a mensagem parece precisar de
- * informação em tempo real (pesquisa na web) ou se é uma conversa normal.
- *
- * Não precisa ser perfeita — o objetivo é só evitar chamar o modelo
- * `groq/compound` (mais pesado, com limite de tokens por requisição bem
- * mais apertado) em toda mensagem trivial como "oi", que nem precisa de
- * pesquisa nenhuma.
+ * Monta o bloco de contexto enviado ao modelo quando temos resultados reais
+ * de uma busca externa (provider configurado via SEARCH_PROVIDER). Segue o
+ * formato: pergunta + resultados numerados + instrução de uso, sempre
+ * deixando explícito que o modelo não deve inventar informações.
  */
-const SEARCH_KEYWORDS = [
-  "hoje", "agora", "atual", "atualidade", "notícia", "noticia", "última", "ultima",
-  "recente", "resultado", "jogo de", "placar", "cotação", "cotacao", "dólar", "dolar",
-  "preço atual", "preco atual", "lançamento", "lancamento", "clima", "temperatura",
-  "previsão do tempo", "previsao do tempo", "quem ganhou", "está funcionando",
-  "esta funcionando", "caiu", "fora do ar", "essa semana", "esse ano", "este ano",
-];
+function buildSearchAugmentedMessage(
+  question: string,
+  results: { title: string; url: string; snippet: string }[]
+): string {
+  const resultsBlock = results
+    .map((r, i) => `${i + 1}. ${r.title}\n${r.snippet}\nFonte: ${r.url}`)
+    .join("\n\n");
 
-function needsWebSearch(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return SEARCH_KEYWORDS.some((kw) => normalized.includes(kw));
+  return [
+    `Pergunta do usuário:`,
+    question,
+    ``,
+    `Resultados encontrados na internet:`,
+    resultsBlock,
+    ``,
+    `Utilize essas informações para responder. Caso existam conflitos entre`,
+    `fontes, priorize as mais confiáveis. Nunca invente informações além do`,
+    `que está nos resultados acima. Responda em português, de forma objetiva`,
+    `e profissional. Não liste as fontes na resposta — isso é feito`,
+    `automaticamente pelo sistema.`,
+  ].join("\n");
 }
 
 /**
@@ -118,11 +126,16 @@ function sanitizeHistory(history: unknown): ChatMessage[] {
   return clean;
 }
 
+export interface GetReplyResult {
+  reply: string;
+  sources?: SourceRef[];
+}
+
 export async function getReply(
   userMessage: string,
   history: ChatMessage[] = [],
   sessionId?: string
-): Promise<string> {
+): Promise<GetReplyResult> {
   const trimmedHistory = sanitizeHistory(history).slice(-MAX_HISTORY);
 
   // getMemory agora é assíncrono (PostgreSQL)
@@ -132,21 +145,42 @@ export async function getReply(
 
   const fullSystemPrompt = SYSTEM_PROMPT + memoryContext;
 
+  const wantsSearch = needsWebSearch(userMessage);
+
+  // ─── Busca externa (opcional, via SEARCH_PROVIDER/SEARCH_API_KEY) ──────────
+  // Se não estiver configurada, `sources` fica undefined e o comportamento
+  // segue 100% igual ao anterior (fallback pro groq/compound logo abaixo).
+  let sources: SourceRef[] | undefined;
+  let finalUserMessage = userMessage;
+  let primaryModel = wantsSearch ? SEARCH_MODEL : CHAT_MODEL;
+
+  if (wantsSearch && isSearchProviderConfigured()) {
+    const outcome = await webSearch(userMessage);
+
+    if (outcome && outcome.results.length) {
+      finalUserMessage = buildSearchAugmentedMessage(userMessage, outcome.results);
+      sources = outcome.results.map((r) => ({ title: r.title, url: r.url }));
+      primaryModel = CHAT_MODEL; // já temos os resultados reais — não precisa do compound
+    } else {
+      // Falhou (timeout/erro/limite) — cai pro comportamento antigo
+      // (groq/compound) em vez de deixar a pergunta sem tentativa de busca.
+      primaryModel = SEARCH_MODEL;
+    }
+  }
+
   const messages: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: fullSystemPrompt },
     ...trimmedHistory.map((msg) => ({
       role: msg.role,
       content: msg.content,
     })),
-    { role: "user", content: userMessage },
+    { role: "user", content: finalUserMessage },
   ];
-
-  const wantsSearch = needsWebSearch(userMessage);
-  const primaryModel = wantsSearch ? SEARCH_MODEL : CHAT_MODEL;
 
   logger.debug("Enviando para Groq", {
     model: primaryModel,
     wantsSearch,
+    usingExternalSearchResults: !!sources,
     historyLength: trimmedHistory.length,
     msgLength: userMessage.length,
     hasMemory: !!memoryContext,
@@ -201,7 +235,8 @@ export async function getReply(
     toolsUsed: Array.isArray(executedTools)
       ? executedTools.map((t: any) => t.type)
       : undefined,
+    sourcesCount: sources?.length ?? 0,
   });
 
-  return reply;
+  return { reply, sources };
 }

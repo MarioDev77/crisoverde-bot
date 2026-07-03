@@ -261,12 +261,13 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
     await saveMemory(sid, updatedMemory);
     await logChatEvent(sid);
 
-    const reply = await getReply(cleanMessage, history, sid);
+    const { reply, sources } = await getReply(cleanMessage, history, sid);
 
     const response: ChatResponse = {
       reply,
       sessionId: sid,
       timestamp: new Date().toISOString(),
+      ...(sources && sources.length ? { sources } : {}),
     };
 
     return res.status(200).json(response);
