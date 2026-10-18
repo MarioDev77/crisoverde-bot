@@ -2,7 +2,7 @@
 
 Frontend em Next.js 14 (App Router) + TypeScript + Tailwind, com cadastro,
 login e um painel administrativo escondido, feito para conversar com o
-backend em `crisoverde-bot-groq`.
+backend em `crisoverde-bot`.
 
 ## Rodando localmente
 

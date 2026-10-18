@@ -1,5 +1,5 @@
 {
-  "name": "crisoverde-bot-groq",
+  "name": "crisoverde-bot",
   "version": "1.0.0",
   "description": "Backend do Chatbot Crisoverde (CRISO.AI) com Google Gemini",
   "main": "dist/index.js",

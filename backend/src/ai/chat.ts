@@ -1,6 +1,6 @@
 /**
  * chat.ts — orquestra uma resposta da CRISO.AI: memória + (pesquisa opcional) + prompt + Gemini.
- * Substitui o antigo groq.ts. A assinatura de getReply() foi mantida para a rota /chat.
+ * A assinatura de getReply() é consumida pela rota /chat.
  */
 import { ChatMessage, SourceRef, UserMemory } from "../types";
 import { buildMemoryContext } from "../memory";
