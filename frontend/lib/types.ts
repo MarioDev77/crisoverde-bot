@@ -10,6 +10,8 @@ export interface AuthUser {
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** Assinatura da resposta da IA; o backend só aceita turnos "assistant" assinados no histórico. */
+  sig?: string;
 }
 
 export interface SourceRef {
@@ -23,6 +25,7 @@ export interface ChatResponse {
   timestamp: string;
   /** Presente apenas quando a resposta usou resultados de busca externa. */
   sources?: SourceRef[];
+  sig?: string;
 }
 
 export interface OverviewMetrics {
@@ -66,4 +69,28 @@ export interface SecurityIpRow {
   block_count: number;
   blocked_until: string | null;
   last_attempt_at: string;
+}
+
+/** O que a CRISO.AI guarda sobre o usuário (GET /api/me/memory). */
+export interface MemoryView {
+  nome: string | null;
+  cidade: string | null;
+  profissao: string | null;
+  idade: string | null;
+  interesses: string[];
+  metas: string[];
+  outros: {
+    preferencias: string[];
+    acoes_sustentaveis: string[];
+    historico: string[];
+  };
+  ultimaConversa: string | null;
+  retencaoDias: { profissao: number; interesses: number; metas: number };
+  limites: { interesses: number; metas: number };
+}
+
+export interface MemoryResponse {
+  memory: MemoryView;
+  /** Valores que o backend recusou guardar (dados sensíveis, links, etc.). */
+  rejected?: string[];
 }

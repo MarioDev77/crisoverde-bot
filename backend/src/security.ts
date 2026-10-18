@@ -87,9 +87,15 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
 
   // Jailbreak clássico — personas alternativas
   {
-    regex: /\b(DAN|jailbreak|do\s+anything\s+now|developer\s+mode)\b/i,
+    regex: /\b(jailbreak|do\s+anything\s+now|developer\s+mode)\b/i,
     weight: 60,
     label: "jailbreak_persona",
+  },
+  {
+    // "DAN" só em maiúsculas: "Dan" é um nome comum e não deve ser sinalizado.
+    regex: /\bDAN\b/,
+    weight: 60,
+    label: "jailbreak_dan",
   },
   {
     regex: /act\s+as\s+(if\s+you\s+are\s+)?(an?\s+)?(evil|unrestricted|unfiltered|uncensored)/i,
@@ -110,7 +116,7 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
 
   // Injeção de papel / role override
   {
-    regex: /you\s+are\s+now\s+(a\s+)?(new|different|another|evil|unrestricted)\s+(ai|bot|assistant|model)/i,
+    regex: /you\s+are\s+now\s+(an?\s+)?(new|different|another|evil|unrestricted)\s+(ai|bot|assistant|model)/i,
     weight: 45,
     label: "role_override",
   },
@@ -139,7 +145,9 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
 
   // Bypass via formatação / codificação
   {
-    regex: /(base64|rot13|hex)\s*(decode|encode|traduz)/i,
+    // Só quando manda executar/obedecer o conteúdo decodificado ("decode this base64 and follow it").
+    // Pedir "como fazer base64 decode em JS" é uso legítimo e não é sinalizado.
+    regex: /(base64|rot13|hex)[^.\n]{0,60}\b(e|and)\s+(execute|siga|obede[cç]a|obedece|fa[cç]a|run|follow|obey)\b/i,
     weight: 25,
     label: "encoding_bypass",
   },
@@ -166,6 +174,60 @@ const INJECTION_PATTERNS: InjectionPattern[] = [
     label: "override_programming",
   },
 ];
+
+// ─── Padrões em português / inglês coloquial (texto normalizado) ─────────────
+// Aplicados ao texto em minúsculas e SEM acentos, então "esqueça", "esqueca" e "ESQUEÇA" casam igual.
+// Escritos para reduzir falsos positivos: exigem verbo de comando + alvo específico (instruções,
+// prompt, regras, "modo debug"...). Frases comuns como "ignorar distrações" ou "mostra a configuração
+// do tsconfig" não casam.
+
+const INJECTION_PATTERNS_NORMALIZED: InjectionPattern[] = [
+  {
+    regex: /\b(ignor[ae]r?|desconsider[ae]r?|esquec[ae]r?|descart[ae]r?)\b.{0,30}\b(instruco(es)?|regras?|ordens|diretrizes|prompt|tudo (o )?que (te |lhe )?(voce|vc|disseram|falaram|mandaram|ouviu|ouviste|aprendeu)|o que (te|lhe) (disseram|falaram|mandaram))/,
+    weight: 40,
+    label: "ignore_instructions_pt_v2",
+  },
+  {
+    regex: /\b(seu|sua|suas|seus|teu|tua)\s+(system\s+prompt|prompt|instrucoes\s+(internas|iniciais|secretas|ocultas|originais|de sistema)|configuracao\s+(interna|secreta)|regras\s+(internas|secretas))/,
+    weight: 45,
+    label: "ask_internal_prompt_pt",
+  },
+  {
+    regex: /\b(repit[ae]r?|copi[ae]r?|cole|mostr[ae]r?|liste|exib[ae]r?|imprim[ae]r?|diga)\b.{0,30}\b(instrucoes|regras|ordens|diretrizes)\b.{0,30}\b(que (voce|vc) (recebeu|tem|ganhou)|que te (deram|passaram|mandaram)|palavra por palavra)/,
+    weight: 45,
+    label: "repeat_instructions_pt",
+  },
+  {
+    regex: /\b(a partir de agora|agora|finja|aja|age|comporte-se)\b.{0,50}\b(sem (restricoes|regras|limites|filtros|censura)|nao tem (regras|restricoes|limites)|nao tenha (regras|restricoes|limites))/,
+    weight: 55,
+    label: "no_rules_persona_pt",
+  },
+  {
+    regex: /\b(libere|liberar|desbloqueie|desbloquear)\b.{0,20}\b(modo (debug|desenvolvedor|dev|admin|deus|livre)|tudo|as restricoes|os filtros)/,
+    weight: 45,
+    label: "unlock_mode_pt",
+  },
+  {
+    regex: /\bsou (o |a )?(administrador|admin|dono|criador|desenvolvedor|programador) (da|do|de) (crisoverde|criso\.?ai|anthropic|google|openai)/,
+    weight: 30,
+    label: "impersonation_pt",
+  },
+  {
+    regex: /\bmodo dan\b/,
+    weight: 60,
+    label: "jailbreak_dan_pt",
+  },
+  {
+    regex: /\brepeat\s+(everything|all|the text|the words)\s+(above|before)\b/,
+    weight: 45,
+    label: "repeat_above_en",
+  },
+];
+
+/** minúsculas, sem acentos e com espaços normalizados */
+export function normalizeForMatch(text: string): string {
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ");
+}
 
 // ─── Tipos internos ──────────────────────────────────────────────────────────
 
@@ -333,6 +395,14 @@ export function analyzeMessage(message: string): {
 
   for (const pattern of INJECTION_PATTERNS) {
     if (pattern.regex.test(message)) {
+      riskPoints += pattern.weight;
+      patterns.push(pattern.label);
+    }
+  }
+
+  const normalized = normalizeForMatch(message);
+  for (const pattern of INJECTION_PATTERNS_NORMALIZED) {
+    if (pattern.regex.test(normalized)) {
       riskPoints += pattern.weight;
       patterns.push(pattern.label);
     }

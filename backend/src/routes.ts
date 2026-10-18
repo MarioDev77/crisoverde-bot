@@ -1,8 +1,12 @@
 import { Router, Request, Response } from "express";
 import { timingSafeEqual } from "crypto";
-import Groq from "groq-sdk";
-import { getReply } from "./groq";
-import { ChatRequest, ChatResponse, ErrorResponse, SecurityStatus } from "./types";
+import { getReply } from "./ai/chat";
+import { AIProviderError, getGeminiConfig } from "./ai/gemini";
+import { createMemoryRouter } from "./memoryRoutes";
+import { checkChatQuota } from "./usageLimit";
+import { filterTrustedHistory, signReply } from "./historyAuth";
+import { isSearchProviderConfigured } from "./search";
+import { ChatMessage, ChatRequest, ChatResponse, ErrorResponse, SecurityStatus } from "./types";
 import {
   extractFromMessage,
   getMemory,
@@ -106,16 +110,16 @@ function requireAdmin(req: Request, res: Response, next: Function) {
   next();
 }
 
-// ─── Sanitização de input ─────────────────────────────────────────────────────
+// ─── Normalização de input ────────────────────────────────────────────────────
+// NÃO escapamos HTML aqui. O texto vai para a IA, que precisa ver exatamente o que a pessoa
+// escreveu (inclusive código com < > & ' "), e o frontend sempre renderiza como texto (React),
+// nunca como HTML. O escape anterior corrompia o conteúdo (ex.: ' virava &amp;#x27;).
 
 function sanitize(text: string): string {
   return text
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#x27;")
-    .replace(/\\/g, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "") // caracteres de controle (mantém \n e \t)
+    .replace(/\r\n?/g, "\n")
+    .replace(/\n{4,}/g, "\n\n\n")
     .trim();
 }
 
@@ -246,6 +250,24 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
     return res.status(400).json(err);
   }
 
+  // Limite diário de uso (custo): por usuário e, opcionalmente, global.
+  const quota = await checkChatQuota(sid, req.user!.role);
+  if (!quota.allowed) {
+    const retryAfterSeconds = quota.retryAfterSeconds ?? 3600;
+    logger.warn("Limite diário de mensagens atingido", { userId: sid, reason: quota.reason, used: quota.used, limit: quota.limit });
+    const err: ErrorResponse = {
+      error:
+        quota.reason === "global"
+          ? "A CRISO.AI atingiu o limite de uso de hoje 🌿 Volte mais tarde."
+          : `Você chegou ao limite de ${quota.limit} mensagens por dia 🌿 Volte mais tarde para continuar.`,
+      code: "DAILY_LIMIT",
+      timestamp: new Date().toISOString(),
+      retryAfterSeconds,
+    };
+    res.set("Retry-After", String(retryAfterSeconds));
+    return res.status(429).json(err);
+  }
+
   const cleanMessage = sanitize(message);
 
   logger.info("Nova mensagem recebida", {
@@ -257,51 +279,82 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
 
   try {
     const memory = await getMemory(sid);
-    const updatedMemory = extractFromMessage(cleanMessage, memory);
+    // Mensagem com padrão de injeção detectado NÃO alimenta a memória.
+    const suspicious = (req.detectedPatterns?.length ?? 0) > 0;
+    const updatedMemory = suspicious ? memory : extractFromMessage(cleanMessage, memory);
     await saveMemory(sid, updatedMemory);
     await logChatEvent(sid);
 
-    const { reply, sources } = await getReply(cleanMessage, history, sid);
+    // Só turnos "assistant" assinados por este servidor para ESTE usuário entram no contexto.
+    const trustedHistory = filterTrustedHistory(history, sid) as ChatMessage[];
+    const { reply, sources } = await getReply(cleanMessage, trustedHistory, updatedMemory);
 
     const response: ChatResponse = {
       reply,
       sessionId: sid,
       timestamp: new Date().toISOString(),
+      sig: signReply(sid, reply),
       ...(sources && sources.length ? { sources } : {}),
     };
 
     return res.status(200).json(response);
   } catch (error: unknown) {
-    logger.error("Erro ao chamar Groq API", { error: String(error) });
+    if (error instanceof AIProviderError) {
+      logger.error("Erro ao chamar Gemini", {
+        kind: error.kind,
+        status: error.status,
+        error: error.message,
+      });
 
-    // Rate limit da Groq (429) — não é uma falha do servidor, é o limite de
-    // uso da conta/plano sendo atingido. Merece uma mensagem própria (e um
-    // 429, não 500) em vez do genérico "erro interno".
-    if (error instanceof Groq.RateLimitError) {
-      const match = String(error.message).match(/try again in ([\d.]+)s/i);
-      const retryAfterSeconds = match ? Math.ceil(parseFloat(match[1])) : 30;
+      const now = new Date().toISOString();
 
-      const err: ErrorResponse = {
-        error: "Estamos com muita gente conversando agora 🌿 Tenta de novo em alguns segundos.",
-        code: "RATE_LIMIT",
-        timestamp: new Date().toISOString(),
-        retryAfterSeconds,
-      };
-      res.set("Retry-After", String(retryAfterSeconds));
-      return res.status(429).json(err);
+      // Mensagens ao usuário nunca expõem chave, modelo, stack ou detalhes do provedor.
+      switch (error.kind) {
+        case "rate_limit": {
+          const retryAfterSeconds = error.retryAfterSeconds ?? 30;
+          const err: ErrorResponse = {
+            error: "Estamos com muita gente conversando agora 🌿 Tenta de novo em alguns segundos.",
+            code: "RATE_LIMIT",
+            timestamp: now,
+            retryAfterSeconds,
+          };
+          res.set("Retry-After", String(retryAfterSeconds));
+          return res.status(429).json(err);
+        }
+        case "timeout":
+        case "unavailable": {
+          const err: ErrorResponse = {
+            error: "A IA está instável neste momento 🌿 Tenta de novo em instantes.",
+            code: "AI_UNAVAILABLE",
+            timestamp: now,
+          };
+          return res.status(503).json(err);
+        }
+        case "empty": {
+          const err: ErrorResponse = {
+            error: "Não consegui montar uma resposta agora. Tenta reformular a pergunta? 🌿",
+            code: "AI_EMPTY",
+            timestamp: now,
+          };
+          return res.status(502).json(err);
+        }
+        default: {
+          // auth / bad_request / unknown → problema de configuração nosso, não do usuário
+          const err: ErrorResponse = {
+            error: "O assistente está indisponível no momento. Tente novamente mais tarde.",
+            code: "AI_ERROR",
+            timestamp: now,
+          };
+          return res.status(500).json(err);
+        }
+      }
     }
 
-    const isKeyError =
-      error instanceof Error &&
-      (error.message.includes("401") ||
-        error.message.includes("API key") ||
-        error.message.includes("auth"));
+    logger.error("Erro ao processar /chat", { error: String(error) });
 
     const err: ErrorResponse = {
-      error: isKeyError
-        ? "Chave de API inválida. Verifique o arquivo .env."
-        : "Erro interno ao processar sua mensagem. Tente novamente.",
-      code: isKeyError ? "AUTH_ERROR" : "API_ERROR",
+      error: "Erro interno ao processar sua mensagem. Tente novamente.",
+      code: "API_ERROR",
       timestamp: new Date().toISOString(),
     };
 
@@ -314,15 +367,20 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
 router.get("/health", (_req: Request, res: Response) => {
   return res.status(200).json({
     status: "ok",
-    version: "1.4.0",
-    engine: "Groq — LLaMA 3.1 8B",
+    version: "1.5.0",
+    engine: `Gemini — ${getGeminiConfig().model}`,
     memory: "postgresql",
+    search: isSearchProviderConfigured() ? "on" : "off",
     security: "active",
     timestamp: new Date().toISOString(),
   });
 });
 
-// ─── Rotas de memória (protegidas) ───────────────────────────────────────────
+// ─── Memória do próprio usuário (consultar, corrigir, apagar) ────────────────
+
+router.use(createMemoryRouter(requireAuth));
+
+// ─── Rotas de memória administrativas (protegidas por token) ─────────────────
 
 router.delete("/memory/:sessionId", requireAdmin, async (req: Request, res: Response) => {
   const { sessionId } = req.params;

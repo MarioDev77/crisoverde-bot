@@ -1,6 +1,8 @@
 export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** Assinatura da resposta da IA (só em turnos "assistant" devolvidos pelo cliente). */
+  sig?: string;
 }
 
 export interface ChatRequest {
@@ -20,6 +22,8 @@ export interface ChatResponse {
   timestamp: string;
   /** Presente apenas quando a resposta usou resultados de busca externa. */
   sources?: SourceRef[];
+  /** Assinatura da resposta: o cliente a devolve junto do histórico para ele ser aceito. */
+  sig?: string;
 }
 
 export interface ErrorResponse {
@@ -46,6 +50,12 @@ export interface UserMemory {
   pontuacao_crisomoeda: number;
   historico: string[];           // resumos das conversas anteriores
   ultimaConversa?: string;       // ISO timestamp
+  /**
+   * Quando cada informação foi registrada/confirmada (ISO). Chaves: "profissao",
+   * "interesses:<valor>", "metas:<valor>". Usado para expirar dados temporários.
+   * Ausente em registros antigos — nesse caso o relógio começa na primeira leitura.
+   */
+  datas?: Record<string, string>;
 }
 
 // ─── Segurança ────────────────────────────────────────────────────────────────

@@ -45,11 +45,14 @@ export function clearStoredToken(): void {
 export class ApiError extends Error {
   status: number;
   code?: string;
+  /** Segundos para tentar de novo (respostas 429). */
+  retryAfterSeconds?: number;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, retryAfterSeconds?: number) {
     super(message);
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -77,7 +80,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!res.ok) {
-    throw new ApiError(data?.error || `Erro ${res.status}`, res.status, data?.code);
+    throw new ApiError(
+      data?.error || `Erro ${res.status}`,
+      res.status,
+      data?.code,
+      typeof data?.retryAfterSeconds === "number" ? data.retryAfterSeconds : undefined
+    );
   }
 
   // Login/cadastro retornam `token` no corpo — guarda pro fallback funcionar

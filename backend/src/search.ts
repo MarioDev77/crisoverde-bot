@@ -3,7 +3,7 @@ import { logger } from "./logger";
 // ─── Configuração via variáveis de ambiente ───────────────────────────────────
 // Nenhuma chave fica fixa no código. Se SEARCH_PROVIDER não for definido (ou
 // for "none"), a busca externa fica desativada e o restante do sistema segue
-// funcionando exatamente como antes (fallback para o groq/compound em groq.ts).
+// funcionando normalmente, mas a CRISO.AI avisa que não tem acesso à internet em vez de simular pesquisa.
 
 export type SearchProvider = "serper" | "tavily" | "none";
 
@@ -45,19 +45,43 @@ export interface SearchOutcome {
 }
 
 // ─── Heurística: a mensagem parece precisar de informação em tempo real? ─────
-// (mesma lista usada historicamente em groq.ts — centralizada aqui)
+// (usada por ai/chat.ts). Trabalha sobre o texto SEM acentos e em minúsculas, então "cotação",
+// "cotaçao" e "cotacao" valem igual.
+//
+// Cada acionamento (com pesquisa configurada) custa dinheiro e envia a mensagem a um provedor
+// externo, então palavras ambíguas ("agora", "atual", "resultado", "caiu") só valem COM contexto:
+// "valeu, agora entendi" ou "o resultado de 8/2" não disparam pesquisa.
 
-const SEARCH_KEYWORDS = [
-  "hoje", "agora", "atual", "atualidade", "notícia", "noticia", "última", "ultima",
-  "recente", "resultado", "jogo de", "placar", "cotação", "cotacao", "dólar", "dolar",
-  "preço atual", "preco atual", "lançamento", "lancamento", "clima", "temperatura",
-  "previsão do tempo", "previsao do tempo", "quem ganhou", "está funcionando",
-  "esta funcionando", "caiu", "fora do ar", "essa semana", "esse ano", "este ano",
+/** Termos que, sozinhos, indicam dado em tempo real. */
+const STRONG_TERMS = [
+  "noticia", "cotacao", "dolar", "euro hoje", "bitcoin", "placar", "quem ganhou",
+  "previsao do tempo", "clima", "temperatura", "preco atual", "fora do ar",
+  "essa semana", "esta semana", "esse ano", "este ano", "lancamento", "ao vivo",
 ];
 
+/** Palavra ambígua só conta se houver uma destas "âncoras" no texto. */
+const CONTEXTUAL: RegExp[] = [
+  // "atual" ligado a cargo, preço ou versão ("presidente atual", "versão atual")
+  /\b(presidente|ceo|prefeito|governador|ministro|campeao|lider|preco|valor|versao|taxa|selic|inflacao|salario minimo)\b.{0,25}\batual\b|\batual\b.{0,15}\b(presidente|ceo|prefeito|governador|ministro|campeao|lider|preco|valor|versao|taxa|selic|inflacao)\b/,
+  // "último/última" ligado a produto, versão ou novidade ("último iPhone", "último modelo")
+  /\bultim[oa]s?\b.{0,25}\b(modelo|versao|lancamento|lancad[oa]s?|noticias?|atualizacao|jogo|filme|album|temporada|episodio|edicao|release|iphone|android|gemini|chatgpt|claude)\b/,
+  // "resultado" ligado a competição ou sorteio
+  /\bresultado\b.{0,25}\b(jogo|mega|loteria|quina|eleicao|concurso|enem|sorteio|rodada|partida|campeonato|prova|vestibular)\b|\b(mega ?sena|loteria|quina)\b/,
+  // jogo/partida com marcador de tempo ("jogo do Bahia ontem")
+  /\b(jogo|partida|rodada)\b.{0,30}\b(hoje|ontem|amanha|ao vivo|agora)\b/,
+  // "hoje/agora" ligado a disponibilidade ou preço
+  /\b(hoje|agora|hj)\b.{0,30}\b(aberto|online|funcionando|disponivel|custa|vale|cotacao|preco|passando|acontecendo)\b|\b(cotacao|preco|dolar|euro)\b.{0,30}\b(hoje|agora|hj)\b/,
+  // "caiu / está funcionando" ligado a serviço ("o ChatGPT caiu?")
+  /\b(site|servidor|app|aplicativo|internet|chatgpt|gemini|instagram|whatsapp|youtube|sistema|rede|servico|api|claude|github|vercel|railway)\b.{0,30}\b(caiu|fora do ar|esta funcionando|tem instabilidade)\b|\b(caiu|esta funcionando)\b.{0,20}\b(site|servidor|app|aplicativo|internet|chatgpt|gemini|instagram|whatsapp|youtube|sistema|rede|servico|api|claude|github|vercel|railway)\b/,
+];
+
+function normalizeText(text: string): string {
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\s+/g, " ");
+}
+
 export function needsWebSearch(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return SEARCH_KEYWORDS.some((kw) => normalized.includes(kw));
+  const t = normalizeText(message);
+  return STRONG_TERMS.some((kw) => t.includes(kw)) || CONTEXTUAL.some((re) => re.test(t));
 }
 
 // ─── Cache em memória (TTL configurável) ──────────────────────────────────────
@@ -225,7 +249,7 @@ export async function webSearch(query: string): Promise<SearchOutcome | null> {
     });
     logger.warn("Fallback ativado", { query, reason: aborted ? "timeout" : "erro" });
 
-    return null; // continua a conversa usando só a Groq — nunca quebra o sistema
+    return null; // a conversa segue só com a IA (sem pesquisa) — nunca quebra o sistema
   } finally {
     clearTimeout(timer);
   }

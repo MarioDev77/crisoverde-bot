@@ -1,12 +1,17 @@
 {
   "name": "crisoverde-bot-groq",
   "version": "1.0.0",
-  "description": "Backend do Chatbot Crisoverde com Groq (gratuito, funciona no Brasil)",
+  "description": "Backend do Chatbot Crisoverde (CRISO.AI) com Google Gemini",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "node -r ts-node/register/transpile-only tests/gemini.mock.test.ts && node -r ts-node/register/transpile-only tests/memory.test.ts && node -r ts-node/register/transpile-only tests/security.test.ts && node -r ts-node/register/transpile-only tests/markdown.test.ts && node -r ts-node/register/transpile-only tests/detection.test.ts",
+    "test:db": "node -r ts-node/register/transpile-only tests/pg.integration.test.ts",
+    "test:e2e": "node -r ts-node/register/transpile-only tests/e2e.test.ts",
+    "eval": "node -r ts-node/register/transpile-only evals/run.ts",
+    "eval:live": "node -r ts-node/register/transpile-only evals/run.ts --live"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -15,7 +20,6 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "express-rate-limit": "^7.3.1",
-    "groq-sdk": "^1.2.1",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",

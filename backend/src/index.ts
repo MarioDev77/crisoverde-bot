@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { setGlobalDispatcher, Agent } from "undici";
 
-// ─── Fix para "FetchError: Premature close" ao chamar a Groq API ────────────
+// ─── Fix para "FetchError: Premature close" ao chamar APIs externas (Gemini, busca) ────────────
 // O fetch nativo do Node (undici) mantém conexões keep-alive abertas para
 // reuso. Em ambientes como Railway, o servidor remoto (ou um proxy no meio
 // do caminho) às vezes fecha essa conexão um pouco antes do timeout que o
@@ -30,6 +30,7 @@ import { logger } from "./logger";
 import { initDB } from "./memory";
 import { initSecurityDB } from "./security";
 import { initAuthDB } from "./auth";
+import { checkModelAvailable, getGeminiConfig } from "./ai/gemini";
 import {
   ipExtractor,
   advancedRateLimit,
@@ -42,8 +43,8 @@ const PORT = parseInt(process.env.PORT || "3001", 10);
 // Necessário para funcionar corretamente atrás de proxy (Railway, Render, etc.)
 app.set("trust proxy", 1);
 
-if (!process.env.GROQ_API_KEY) {
-  logger.error("GROQ_API_KEY não definida. Crie o arquivo .env com base no .env.example");
+if (!process.env.GEMINI_API_KEY) {
+  logger.error("GEMINI_API_KEY não definida. Crie o arquivo .env com base no .env.example");
   process.exit(1);
 }
 
@@ -172,9 +173,12 @@ async function bootstrap() {
     process.exit(1); // sem tabela de usuários, login/cadastro não funcionam — melhor falhar cedo
   }
 
+  // Verificação não fatal: só avisa nos logs se o modelo/chave não forem reconhecidos.
+  void checkModelAvailable();
+
   app.listen(PORT, () => {
-    logger.info(`🌿 Crisoverde Bot (Groq) rodando em http://localhost:${PORT}`);
-    logger.info(`Engine: Groq — LLaMA 3.1 8B Instant`);
+    logger.info(`🌿 Crisoverde Bot (Gemini) rodando em http://localhost:${PORT}`);
+    logger.info(`Engine: Gemini — ${getGeminiConfig().model}`);
     logger.info(`Ambiente: ${process.env.NODE_ENV || "development"}`);
     logger.info(`CORS liberado para: ${allowedOrigins.join(", ")}`);
     logger.info(`Sistema de segurança: ATIVO 🛡️`);
