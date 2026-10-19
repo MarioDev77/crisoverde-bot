@@ -50,63 +50,81 @@ export function ipExtractor(
 }
 
 // ─── 2. Rate Limiting Avançado (janela deslizante em memória) ─────────────────
-// Complementa o rateLimit básico do index.ts, com controle mais granular.
 // Não depende de Redis — usa Map em memória (limpo automaticamente).
+//
+// CORREÇÃO (429 indevido): antes, TODOS os limitadores (geral da API, login/cadastro)
+// compartilhavam UM ÚNICO Map indexado só pelo IP. Cada limitador filtrava esse Map com a
+// SUA janela e contava as requisições dos OUTROS: o limite de login (10 por 5 min) acabava
+// contando chat, /health e listagem de conversas. Agora cada limitador tem o próprio Map.
+//
+// Também é possível escolher a CHAVE de contagem (ex.: id do usuário). Escolas e redes
+// móveis (CGNAT) fazem muita gente compartilhar o mesmo IP; contar por IP faz um aluno
+// "gastar" o limite do colega.
 
 interface RateLimitEntry {
   timestamps: number[];  // timestamps das requisições na janela atual
 }
 
-const rateLimitStore = new Map<string, RateLimitEntry>();
+const allStores: Array<{ store: Map<string, RateLimitEntry>; windowMs: number }> = [];
 
 // Limpa entradas antigas a cada 5 minutos para não acumular memória
 setInterval(() => {
-  const windowMs = (parseInt(process.env.RATE_LIMIT_WINDOW_MINUTES || "1", 10)) * 60 * 1000;
-  const cutoff = Date.now() - windowMs;
-
-  for (const [ip, entry] of rateLimitStore.entries()) {
-    entry.timestamps = entry.timestamps.filter((ts) => ts > cutoff);
-    if (entry.timestamps.length === 0) {
-      rateLimitStore.delete(ip);
+  for (const { store, windowMs } of allStores) {
+    const cutoff = Date.now() - windowMs;
+    for (const [key, entry] of store.entries()) {
+      entry.timestamps = entry.timestamps.filter((ts) => ts > cutoff);
+      if (entry.timestamps.length === 0) store.delete(key);
     }
   }
-}, 5 * 60 * 1000);
+}, 5 * 60 * 1000).unref();
 
 export function advancedRateLimit(options?: {
-  /** Número máximo de requisições na janela (padrão: env RATE_LIMIT_MAX ou 30) */
+  /** Número máximo de requisições na janela (padrão: env RATE_LIMIT_MAX ou 120) */
   max?: number;
   /** Tamanho da janela em minutos (padrão: 1) */
   windowMinutes?: number;
+  /** Chave de contagem. Padrão: IP do cliente. Ex.: (req) => req.user?.id */
+  key?: (req: Request) => string | undefined;
+  /** Caminhos (req.path) que NÃO entram na contagem, ex.: ["/health"] */
+  skipPaths?: string[];
+  /** Mensagem e código devolvidos no 429 */
+  message?: string;
+  code?: string;
 }) {
-  const max = options?.max ?? parseInt(process.env.RATE_LIMIT_MAX || "30", 10);
+  const max = options?.max ?? parseInt(process.env.RATE_LIMIT_MAX || "120", 10);
   const windowMinutes = options?.windowMinutes ?? 1;
   const windowMs = windowMinutes * 60 * 1000;
+  const skip = new Set(options?.skipPaths ?? []);
+  const store = new Map<string, RateLimitEntry>(); // um Map POR limitador
+  allStores.push({ store, windowMs });
 
   return function rateLimitMiddleware(
     req: Request,
     res: Response,
     next: NextFunction
   ): void {
-    const ip = req.clientIp;
+    if (skip.has(req.path)) return next();
+
+    const id = options?.key?.(req) ?? req.clientIp;
     const now = Date.now();
     const cutoff = now - windowMs;
 
-    // Obtém ou cria entrada para o IP
-    if (!rateLimitStore.has(ip)) {
-      rateLimitStore.set(ip, { timestamps: [] });
+    let entry = store.get(id);
+    if (!entry) {
+      entry = { timestamps: [] };
+      store.set(id, entry);
     }
-
-    const entry = rateLimitStore.get(ip)!;
 
     // Remove timestamps fora da janela (sliding window)
     entry.timestamps = entry.timestamps.filter((ts) => ts > cutoff);
 
     if (entry.timestamps.length >= max) {
       const oldestInWindow = entry.timestamps[0];
-      const retryAfterSeconds = Math.ceil((oldestInWindow + windowMs - now) / 1000);
+      const retryAfterSeconds = Math.max(1, Math.ceil((oldestInWindow + windowMs - now) / 1000));
 
-      logger.warn("[RATE_LIMIT] IP excedeu limite de requisições", {
-        ip,
+      logger.warn("[RATE_LIMIT] limite de requisições excedido", {
+        key: id,
+        path: req.path,
         count: entry.timestamps.length,
         max,
         retryAfterSeconds,
@@ -117,8 +135,8 @@ export function advancedRateLimit(options?: {
       res.setHeader("X-RateLimit-Remaining", "0");
 
       res.status(429).json({
-        error: "Muitas requisições. Aguarde antes de tentar novamente.",
-        code: "RATE_LIMITED",
+        error: options?.message ?? "Muitas requisições. Aguarde antes de tentar novamente.",
+        code: options?.code ?? "RATE_LIMITED",
         retryAfterSeconds,
         timestamp: new Date().toISOString(),
       });

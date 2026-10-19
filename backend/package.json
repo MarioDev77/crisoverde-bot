@@ -7,7 +7,7 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "node -r ts-node/register/transpile-only tests/gemini.mock.test.ts && node -r ts-node/register/transpile-only tests/memory.test.ts && node -r ts-node/register/transpile-only tests/security.test.ts && node -r ts-node/register/transpile-only tests/markdown.test.ts && node -r ts-node/register/transpile-only tests/detection.test.ts && node -r ts-node/register/transpile-only tests/format.test.ts && node -r ts-node/register/transpile-only tests/typing.test.ts",
+    "test": "node -r ts-node/register/transpile-only tests/gemini.mock.test.ts && node -r ts-node/register/transpile-only tests/memory.test.ts && node -r ts-node/register/transpile-only tests/security.test.ts && node -r ts-node/register/transpile-only tests/markdown.test.ts && node -r ts-node/register/transpile-only tests/detection.test.ts && node -r ts-node/register/transpile-only tests/format.test.ts && node -r ts-node/register/transpile-only tests/typing.test.ts && node -r ts-node/register/transpile-only tests/ratelimit.test.ts",
     "test:db": "node -r ts-node/register/transpile-only tests/pg.integration.test.ts",
     "test:e2e": "node -r ts-node/register/transpile-only tests/e2e.test.ts",
     "eval": "node -r ts-node/register/transpile-only evals/run.ts",

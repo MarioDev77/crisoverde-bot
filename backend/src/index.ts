@@ -128,11 +128,14 @@ app.use(ipExtractor);
 // 2. Logger de segurança — registra requisições suspeitas e status codes de erro
 app.use("/api", securityLogger);
 
-// 3. Rate limiting avançado com janela deslizante
-//    Substitui o rateLimit básico anterior
+// 3. Rate limiting geral da API (por IP). É só uma rede de proteção contra abuso:
+//    o IP é compartilhado por muita gente (escola, 4G/CGNAT), então o padrão é folgado (120/min)
+//    e /health (consulta automática do front) não conta. O controle fino do chat é
+//    por USUÁRIO, em routes.ts (CHAT_RATE_PER_MIN).
 app.use("/api", advancedRateLimit({
-  max: parseInt(process.env.RATE_LIMIT_MAX || "30", 10),
+  max: parseInt(process.env.RATE_LIMIT_MAX || "120", 10),
   windowMinutes: 1,
+  skipPaths: ["/health"],
 }));
 
 // ─── Rotas da API ─────────────────────────────────────────────────────────────

@@ -251,6 +251,8 @@ async function callOnce(cfg: GeminiConfig, input: GenerateInput, opts: CallOptio
 // ─── Chamada com retry, fallback e prazo total ───────────────────────────────
 
 const BACKOFF_MS = [400, 1200];
+/** Espera máxima (s) para repetir UMA vez depois de um 429 por minuto. Antes eram 8s; o Google costuma pedir 10-15s. */
+const RATE_RETRY_MAX_WAIT_S = 15;
 const MODEL_MAX_OUTPUT_TOKENS = 65536; // teto de saída dos modelos Gemini 3.x (documentação oficial)
 
 /**
@@ -299,7 +301,7 @@ async function reserveCallSlot(maxRpm: number, budgetMs: number): Promise<void> 
  *  3. 400 com thinkingConfig → repete uma vez sem thinkingConfig (o modelo pode não aceitar o nível).
  *  4. Resposta vazia por MAX_TOKENS pode ser repetida uma vez com configuração de raciocínio reduzida, quando suportada pelo modelo.
  *  5. Todo o processo respeita um prazo total de 2 × GEMINI_TIMEOUT_MS (o dobro de cada, se houver anexo de imagem/PDF).
- *  6. 429 por cota POR MINUTO com espera curta (≤ 8s): espera e repete uma vez. Cota DIÁRIA: não repete.
+ *  6. 429 por cota POR MINUTO com espera curta (≤ 15s, se couber no prazo): espera e repete uma vez. Cota DIÁRIA: não repete.
  *  7. GEMINI_MAX_RPM (opcional): segura as chamadas no servidor para não estourar a cota por minuto.
  */
 export async function generate(input: GenerateInput): Promise<GenerateResult> {
@@ -376,7 +378,7 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
           await sleep(wait);
           continue;
         }
-        if (e.kind === "rate_limit" && !e.daily && !rateRetried && e.retryAfterSeconds && e.retryAfterSeconds <= 8) {
+        if (e.kind === "rate_limit" && !e.daily && !rateRetried && e.retryAfterSeconds && e.retryAfterSeconds <= RATE_RETRY_MAX_WAIT_S && deadline - Date.now() > e.retryAfterSeconds * 1000 + 1700) {
           // Cota por MINUTO com espera curta: vale esperar e repetir uma vez (cota diária não volta em segundos).
           rateRetried = true;
           logger.warn("Gemini 429 por minuto — esperando e repetindo uma vez", { model, wait: e.retryAfterSeconds, quotaId: e.quotaId });
