@@ -75,18 +75,22 @@ export function selectHistory(history: ChatMessage[]): ChatMessage[] {
  *  - a conversa começa por "user";
  *  - turnos consecutivos do mesmo papel são unidos (ex.: usuário reenviou após um erro).
  */
-export function toTurns(history: ChatMessage[], currentUserText: string): GeminiTurn[] {
+export function toTurns(history: ChatMessage[], currentUserText: string, currentParts?: GeminiTurn["parts"]): GeminiTurn[] {
   const raw: GeminiTurn[] = [
     ...history.map((m) => ({ role: (m.role === "assistant" ? "model" : "user") as "user" | "model", text: m.content })),
-    { role: "user", text: currentUserText },
+    { role: "user", text: currentUserText, ...(currentParts?.length ? { parts: [{ text: currentUserText }, ...currentParts] } : {}) },
   ];
 
   const turns: GeminiTurn[] = [];
   for (const t of raw) {
     if (turns.length === 0 && t.role === "model") continue; // descarta "model" inicial
     const last = turns[turns.length - 1];
-    if (last && last.role === t.role) last.text += `\n\n${t.text}`;
-    else turns.push({ ...t });
+    if (last && last.role === t.role) {
+      const previousText = last.text;
+      last.text += `\n\n${t.text}`;
+      if (t.parts?.length) last.parts = [{ text: previousText }, { text: "\n\n" }, ...t.parts];
+      else if (last.parts) last.parts.push({ text: `\n\n${t.text}` });
+    } else turns.push({ ...t });
   }
   return turns;
 }

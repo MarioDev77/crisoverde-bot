@@ -59,7 +59,7 @@ export class ApiError extends Error {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
   const headers: Record<string, string> = {
-    "Content-Type": "application/json",
+    ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
     ...(options.headers as Record<string, string> || {}),
   };
   if (token) {
@@ -105,5 +105,15 @@ export const api = {
       body: body ? JSON.stringify(body) : undefined,
       ...(opts?.signal ? { signal: opts.signal } : {}),
     }),
+  patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
+  upload: async <T>(path: string, form: FormData, opts?: { signal?: AbortSignal }) => {
+    const token = getStoredToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${API_URL}/api${path}`, { method: "POST", body: form, headers, credentials: "include", ...(opts?.signal ? { signal: opts.signal } : {}) });
+    const data = await res.json().catch(() => null);
+    if (!res.ok) throw new ApiError(data?.error || `Erro ${res.status}`, res.status, data?.code);
+    return data as T;
+  },
 };

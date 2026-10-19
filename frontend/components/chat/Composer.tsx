@@ -1,118 +1,25 @@
 "use client";
-
-import { useEffect, type KeyboardEvent, type RefObject } from "react";
-import { Mic, Paperclip, Send, Square } from "lucide-react";
-
-interface Props {
-  value: string;
-  onChange: (v: string) => void;
-  onSend: () => void;
-  onStop: () => void;
-  /** Esta conversa está esperando resposta. */
-  busy: boolean;
-  /** Qualquer requisição em andamento (bloqueia novo envio). */
-  locked: boolean;
-  max: number;
-  inputRef: RefObject<HTMLTextAreaElement>;
-}
-
-export function Composer({ value, onChange, onSend, onStop, busy, locked, max, inputRef }: Props) {
-  // Caixa de texto cresce com o conteúdo (até ~8 linhas)
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-  }, [value, inputRef]);
-
-  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      onSend();
-    }
-  }
-
-  const canSend = !!value.trim() && !locked;
-  const nearLimit = value.length > max * 0.85;
-
-  return (
-    <div className="px-3 pb-3 pt-1 sm:px-6">
-      <div className="mx-auto max-w-3xl">
-        <div className="rounded-2xl border border-criso-accent/30 bg-criso-panel transition-colors focus-within:border-criso-accent/70">
-          <textarea
-            ref={inputRef}
-            value={value}
-            onChange={(e) => onChange(e.target.value.slice(0, max))}
-            onKeyDown={handleKeyDown}
-            rows={1}
-            placeholder="Digite sua mensagem..."
-            aria-label="Mensagem para a CRISO.AI"
-            className="block max-h-40 w-full resize-none bg-transparent px-4 pt-3.5 text-sm text-criso-text placeholder:text-criso-faint focus:outline-none"
-          />
-
-          <div className="flex items-center gap-2 px-3 pb-3 pt-2">
-            {/* Anexar e gravar ainda não funcionam: ficam desabilitados e dizem isso (nada de botão de enfeite). */}
-            <button
-              disabled
-              title="Envio de arquivos: em breve"
-              className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left text-criso-faint disabled:cursor-not-allowed"
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-criso-line">
-                <Paperclip size={17} aria-hidden="true" />
-              </span>
-              <span className="hidden text-xs leading-tight sm:block">
-                <span className="block">Anexar arquivo</span>
-                <span className="block text-[11px]">Em breve</span>
-              </span>
-              <span className="sr-only sm:hidden">Anexar arquivo (em breve)</span>
-            </button>
-            <button
-              disabled
-              title="Gravação de áudio: em breve"
-              className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left text-criso-faint disabled:cursor-not-allowed"
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-criso-line">
-                <Mic size={17} aria-hidden="true" />
-              </span>
-              <span className="hidden text-xs leading-tight sm:block">
-                <span className="block">Gravar áudio</span>
-                <span className="block text-[11px]">Em breve</span>
-              </span>
-              <span className="sr-only sm:hidden">Gravar áudio (em breve)</span>
-            </button>
-
-            <span
-              className={`ml-auto text-xs tabular-nums ${nearLimit ? "text-criso-danger" : "text-criso-faint"}`}
-              aria-label={`${value.length} de ${max} caracteres`}
-            >
-              {value.length}/{max}
-            </span>
-
-            {busy ? (
-              <button
-                onClick={onStop}
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-criso-line text-criso-text hover:border-criso-danger hover:text-criso-danger"
-                aria-label="Interromper resposta"
-              >
-                <Square size={15} aria-hidden="true" />
-              </button>
-            ) : (
-              <button
-                onClick={onSend}
-                disabled={!canSend}
-                className="flex h-11 w-11 items-center justify-center rounded-full bg-criso-accent text-criso-ink transition-colors hover:bg-criso-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Enviar mensagem"
-              >
-                <Send size={18} aria-hidden="true" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        <p className="mt-2 hidden px-1 text-xs text-criso-faint sm:block">
-          Shift + Enter para quebrar linha <span className="mx-2 text-criso-line">|</span> Enter para enviar
-        </p>
-      </div>
-    </div>
-  );
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type RefObject } from "react";
+import { Mic, Paperclip, Send, Square, X, FileText } from "lucide-react";
+import type { ChatAttachment, ChatMode } from "@/hooks/useChat";
+interface Props { value: string; onChange: (v:string)=>void; onSend: (attachments?: ChatAttachment[], mode?: ChatMode)=>void; onStop:()=>void; busy:boolean; locked:boolean; max:number; inputRef:RefObject<HTMLTextAreaElement>; }
+const MAX_FILE=5*1024*1024;
+const ALLOWED=new Set(["image/png","image/jpeg","image/webp","application/pdf","text/plain","text/markdown","text/csv","application/json","text/html","text/css","text/javascript","application/xml"]);
+export function Composer({value,onChange,onSend,onStop,busy,locked,max,inputRef}:Props){
+ const fileRef=useRef<HTMLInputElement>(null); const [files,setFiles]=useState<ChatAttachment[]>([]); const [fileNames,setFileNames]=useState<string[]>([]); const [mode,setMode]=useState<ChatMode>("auto"); const [recording,setRecording]=useState(false); const recognitionRef=useRef<any>(null); const [fileError,setFileError]=useState("");
+ useEffect(()=>{const el=inputRef.current;if(!el)return;el.style.height="auto";el.style.height=`${Math.min(el.scrollHeight,160)}px`;},[value,inputRef]);
+ function keyDown(e:KeyboardEvent<HTMLTextAreaElement>){if(e.key==="Enter"&&!e.shiftKey&&!e.nativeEvent.isComposing){e.preventDefault();send();}}
+ async function pickFiles(e:ChangeEvent<HTMLInputElement>){setFileError("");const selected=Array.from(e.target.files||[]) as File[];if(files.length+selected.length>5){setFileError("Envie até 5 arquivos por mensagem.");e.target.value="";return;}const next=[...files];const names=[...fileNames];for(const file of selected){if(file.size>MAX_FILE){setFileError(`${file.name}: limite de 5 MB por arquivo.`);continue;}const mime=file.type||guessMime(file.name);if(!ALLOWED.has(mime)&&! /\.(md|txt|csv|json|xml|js|jsx|ts|tsx|py|sql|log|yaml|yml)$/i.test(file.name)){setFileError(`${file.name}: formato não suportado.`);continue;}const data=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(",")[1]||"");reader.onerror=reject;reader.readAsDataURL(file);});next.push({name:file.name,mimeType:mime,data});names.push(file.name);}setFiles(next);setFileNames(names);e.target.value="";}
+ function guessMime(name:string){if(/\.(md|txt|log)$/i.test(name))return "text/plain";if(/\.csv$/i.test(name))return "text/csv";if(/\.json$/i.test(name))return "application/json";if(/\.(js|jsx|ts|tsx)$/i.test(name))return "text/javascript";if(/\.py$/i.test(name))return "text/plain";if(/\.html$/i.test(name))return "text/html";if(/\.css$/i.test(name))return "text/css";if(/\.pdf$/i.test(name))return "application/pdf";return "application/octet-stream";}
+ function send(){if((value.trim()||files.length)&&!locked){onSend(files,mode);setFiles([]);setFileNames([]);setFileError("");}}
+ function toggleAudio(){const W=window as any;const SR=W.SpeechRecognition||W.webkitSpeechRecognition;if(!SR){setFileError("Seu navegador não oferece transcrição de voz. Tente usar o Chrome atualizado.");return;}if(recording){recognitionRef.current?.stop();setRecording(false);return;}const rec=new SR();rec.lang="pt-BR";rec.interimResults=false;rec.continuous=false;rec.onresult=(ev:any)=>{let t="";for(let i=ev.resultIndex;i<ev.results.length;i++)t+=ev.results[i][0].transcript;onChange((value?value+" ":"")+t.slice(0,max-value.length));};rec.onerror=()=>{setFileError("Não foi possível acessar/transcrever o microfone.");setRecording(false);};rec.onend=()=>setRecording(false);recognitionRef.current=rec;try{rec.start();setRecording(true);setFileError("");}catch{setFileError("Não foi possível iniciar o microfone.");}}
+ const canSend=!!value.trim()||files.length>0;return <div className="px-3 pb-3 pt-2 sm:px-6 sm:pb-4"><div className="mx-auto max-w-3xl"><div className="rounded-[22px] border border-criso-accent/45 bg-[linear-gradient(145deg,rgba(7,30,22,0.98),rgba(5,17,14,0.98))] transition-colors focus-within:border-criso-accent/80">
+ {files.length>0&&<div className="flex flex-wrap gap-2 px-4 pt-3">{files.map((f,i)=><span key={`${f.name}-${i}`} className="inline-flex items-center gap-2 rounded-lg border border-criso-line bg-criso-surface px-2 py-1 text-xs"><FileText size={14}/>{f.name}<button onClick={()=>{setFiles(v=>v.filter((_,n)=>n!==i));setFileNames(v=>v.filter((_,n)=>n!==i));}} aria-label={`Remover ${f.name}`}><X size={13}/></button></span>)}</div>}
+ <textarea ref={inputRef} value={value} onChange={e=>onChange(e.target.value.slice(0,max))} onKeyDown={keyDown} rows={1} placeholder="Digite sua mensagem..." aria-label="Mensagem para a CRISO.AI" className="block max-h-40 w-full resize-none bg-transparent px-4 pt-4 text-[15px] leading-6 text-criso-text placeholder:text-criso-faint focus:outline-none sm:px-5"/>
+ <div className="flex flex-wrap items-center gap-1.5 px-2.5 pb-2.5 pt-2 sm:gap-2 sm:px-3 sm:pb-3"><input ref={fileRef} type="file" multiple accept="image/png,image/jpeg,image/webp,application/pdf,text/plain,text/markdown,text/csv,application/json,text/html,text/css,.js,.jsx,.ts,.tsx,.py,.sql,.md,.yaml,.yml,.log" className="hidden" onChange={pickFiles}/>
+ <button onClick={()=>fileRef.current?.click()} className="flex items-center gap-2 rounded-xl px-2 py-1.5 text-left text-criso-muted hover:bg-criso-surface" title="Anexar arquivos"><span className="flex h-9 w-9 items-center justify-center rounded-full border border-criso-line bg-criso-surface/70"><Paperclip size={17}/></span><span className="hidden text-xs sm:block">Anexar</span></button>
+ <button onClick={toggleAudio} className={`flex items-center gap-2 rounded-xl px-2 py-1.5 text-left ${recording?"text-criso-danger":"text-criso-muted hover:bg-criso-surface"}`} title={recording?"Parar transcrição":"Transcrever voz"}><span className="flex h-9 w-9 items-center justify-center rounded-full border border-criso-line bg-criso-surface/70"><Mic size={17}/></span><span className="hidden text-xs sm:block">{recording?"Ouvindo…":"Áudio"}</span></button>
+ <label className="ml-1 flex items-center gap-1 text-[11px] text-criso-muted">Modo <select value={mode} onChange={e=>setMode(e.target.value as ChatMode)} className="max-w-28 rounded-lg border border-criso-line bg-criso-surface px-2 py-1.5 text-xs text-criso-text"><option value="auto">Automático</option><option value="developer">Desenvolvedor</option><option value="teacher">Professor</option><option value="sustainability">Socioambiental</option></select></label>
+ <span className={`ml-auto text-xs tabular-nums ${value.length>max*.85?"text-criso-danger":"text-criso-faint"}`}>{value.length}/{max}</span>{busy?<button onClick={onStop} className="flex h-11 w-11 items-center justify-center rounded-full border border-criso-line text-criso-text hover:text-criso-danger" aria-label="Interromper resposta"><Square size={15}/></button>:<button onClick={send} disabled={!canSend||locked} className="flex h-11 w-11 items-center justify-center rounded-full bg-criso-accent text-criso-ink disabled:opacity-40" aria-label="Enviar mensagem"><Send size={18}/></button>}</div></div>
+ {fileError&&<p role="alert" className="mt-2 px-2 text-xs text-criso-danger">{fileError}</p>}<p className="mt-2 px-1 text-center text-[11px] text-criso-faint">A CRISO.AI pode cometer erros. Shift + Enter para nova linha. Arquivos: até 5 MB cada.</p></div></div>;
 }

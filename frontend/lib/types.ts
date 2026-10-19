@@ -22,6 +22,7 @@ export interface SourceRef {
 export interface ChatResponse {
   reply: string;
   sessionId: string;
+  conversationId?: string;
   timestamp: string;
   /** Presente apenas quando a resposta usou resultados de busca externa. */
   sources?: SourceRef[];
@@ -108,6 +109,7 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   messages: UiMessage[];
+  loaded?: boolean;
 }
 
 /** Resposta de GET /api/health (só os campos que a interface usa). */

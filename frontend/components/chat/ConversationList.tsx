@@ -1,70 +1,8 @@
 "use client";
-
-import { Loader2, MessageSquare } from "lucide-react";
+import { useState } from "react";
+import { Loader2, MessageSquare, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { dayGroup, formatWhen, type DayGroup } from "@/lib/format";
 import type { Conversation } from "@/lib/types";
-
-interface Props {
-  conversations: Conversation[];
-  activeId: string | null;
-  pendingId: string | null;
-  onSelect: (id: string) => void;
-  /** true quando há texto na busca (muda a mensagem de lista vazia). */
-  filtering: boolean;
-}
-
-const GROUP_ORDER: DayGroup[] = ["Hoje", "Ontem", "Anteriores"];
-
-export function ConversationList({ conversations, activeId, pendingId, onSelect, filtering }: Props) {
-  if (conversations.length === 0) {
-    return (
-      <p className="px-3 py-4 text-xs leading-relaxed text-criso-faint">
-        {filtering
-          ? "Nenhuma conversa encontrada."
-          : "Suas conversas desta sessão aparecem aqui. Clique em “Novo chat” ou escreva uma mensagem para começar."}
-      </p>
-    );
-  }
-
-  const now = Date.now();
-  const groups = GROUP_ORDER.map((label) => ({
-    label,
-    items: conversations.filter((c) => dayGroup(c.updatedAt, now) === label),
-  })).filter((g) => g.items.length > 0);
-
-  return (
-    <div className="space-y-3">
-      {groups.map((g) => (
-        <div key={g.label}>
-          <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-criso-faint">{g.label}</p>
-          <ul className="space-y-0.5">
-            {g.items.map((c) => {
-              const isActive = c.id === activeId;
-              return (
-                <li key={c.id}>
-                  <button
-                    onClick={() => onSelect(c.id)}
-                    aria-current={isActive ? "page" : undefined}
-                    className={`group flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition-colors ${
-                      isActive ? "bg-criso-raised" : "hover:bg-criso-surface"
-                    }`}
-                  >
-                    {pendingId === c.id ? (
-                      <Loader2 size={16} className="shrink-0 animate-spin text-criso-accent" aria-label="Respondendo" />
-                    ) : (
-                      <MessageSquare size={16} className="shrink-0 text-criso-accent/80" aria-hidden="true" />
-                    )}
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm text-criso-text">{c.title}</span>
-                      <span className="block truncate text-xs text-criso-faint">{formatWhen(c.updatedAt, now)}</span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ))}
-    </div>
-  );
-}
+interface Props { conversations:Conversation[]; activeId:string|null; pendingId:string|null; onSelect:(id:string)=>void; onRename:(id:string,title:string)=>void; onRemove:(id:string)=>void; filtering:boolean; }
+const ORDER:DayGroup[]=["Hoje","Ontem","Anteriores"];
+export function ConversationList({conversations,activeId,pendingId,onSelect,onRename,onRemove,filtering}:Props){const [menu,setMenu]=useState<string|null>(null);if(!conversations.length)return <p className="px-3 py-4 text-xs leading-relaxed text-criso-faint">{filtering?"Nenhuma conversa encontrada.":"Suas conversas aparecem aqui. Clique em Novo chat para começar."}</p>;const now=Date.now();const groups=ORDER.map(label=>({label,items:conversations.filter(c=>dayGroup(c.updatedAt,now)===label)})).filter(g=>g.items.length);return <div className="space-y-3">{groups.map(g=><div key={g.label}><p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wide text-criso-faint">{g.label}</p><ul className="space-y-0.5">{g.items.map(c=><li key={c.id} className="group relative flex items-center"><button onClick={()=>onSelect(c.id)} aria-current={c.id===activeId?"page":undefined} className={`flex min-w-0 flex-1 items-center gap-3 rounded-xl px-3 py-2 text-left ${c.id===activeId?"bg-criso-raised":"hover:bg-criso-surface"}`}>{pendingId===c.id?<Loader2 size={16} className="animate-spin text-criso-accent"/>:<MessageSquare size={16} className="text-criso-accent/80"/>}<span className="min-w-0 flex-1"><span className="block truncate text-sm text-criso-text">{c.title}</span><span className="block truncate text-xs text-criso-faint">{formatWhen(c.updatedAt,now)}</span></span></button><button onClick={()=>setMenu(v=>v===c.id?null:c.id)} className="rounded-lg p-1.5 text-criso-muted hover:bg-criso-raised" aria-label="Opções da conversa"><MoreHorizontal size={16}/></button>{menu===c.id&&<div className="absolute right-1 top-10 z-20 w-36 rounded-xl border border-criso-line bg-criso-panel p-1 shadow-xl"><button onClick={()=>{setMenu(null);const title=window.prompt("Novo título",c.title);if(title?.trim())onRename(c.id,title.trim());}} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs hover:bg-criso-surface"><Pencil size={14}/> Renomear</button><button onClick={()=>{setMenu(null);if(window.confirm("Excluir esta conversa?"))onRemove(c.id);}} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-criso-danger hover:bg-criso-surface"><Trash2 size={14}/> Excluir</button></div>}</li>)}</ul></div>)}</div>}

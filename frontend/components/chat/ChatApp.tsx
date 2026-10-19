@@ -66,11 +66,11 @@ export function ChatApp() {
     focusInput();
   }
 
-  function send() {
+  function send(attachments: import("@/hooks/useChat").ChatAttachment[] = [], mode: import("@/hooks/useChat").ChatMode = "auto") {
     const text = input.trim();
-    if (!text || chat.locked) return;
+    if ((!text && attachments.length === 0) || chat.locked) return;
     setInput("");
-    chat.send(text);
+    chat.send(text || "Analise os arquivos anexados.", attachments, mode);
   }
 
   const focusSearch = useCallback(() => {
@@ -95,6 +95,8 @@ export function ChatApp() {
         pendingId={chat.pendingId}
         onNewChat={newChat}
         onSelect={store.select}
+        onRename={(id, title) => void store.rename(id, title).catch(() => alert("Não foi possível renomear a conversa."))}
+        onRemove={(id) => void store.remove(id).catch(() => alert("Não foi possível excluir a conversa."))}
         onOpenMemory={() => {
           setDrawerOpen(false);
           setMemoryOpen(true);
@@ -135,7 +137,7 @@ export function ChatApp() {
             <Composer
               value={input}
               onChange={setInput}
-              onSend={send}
+              onSend={(attachments, mode) => send(attachments, mode)}
               onStop={chat.stop}
               busy={busy}
               locked={chat.locked}

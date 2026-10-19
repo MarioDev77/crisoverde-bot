@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { timingSafeEqual } from "crypto";
 import { getReply } from "./ai/chat";
+import { conversationsRouter, persistTurn } from "./conversations";
 import { AIProviderError, getGeminiConfig } from "./ai/gemini";
 import { createMemoryRouter } from "./memoryRoutes";
 import { checkChatQuota } from "./usageLimit";
@@ -229,7 +230,7 @@ router.get("/auth/me", requireAuth, (req: Request, res: Response) => {
 // injectionGuard roda depois, olhando o conteúdo da mensagem.
 
 router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Response) => {
-  const { message, history = [] } = req.body as ChatRequest;
+  const { message, history = [], conversationId, attachments = [], mode = "auto" } = req.body as ChatRequest;
   const sid = req.user!.id;
 
   if (!message || typeof message !== "string" || !message.trim()) {
@@ -270,6 +271,41 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
 
   const cleanMessage = sanitize(message);
 
+  // Anexos em base64: limite agregado de 8 MiB, MIME permitido e nome normalizado.
+  const attachmentParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
+  let attachmentText = "";
+  if (!Array.isArray(attachments) || attachments.length > 5) {
+    return res.status(400).json({ error: "Envie no máximo 5 anexos por mensagem.", code: "INVALID_ATTACHMENTS" });
+  }
+  let attachmentBytes = 0;
+  for (const file of attachments) {
+    if (!file || typeof file.name !== "string" || typeof file.mimeType !== "string" || typeof file.data !== "string") {
+      return res.status(400).json({ error: "Um dos anexos está inválido.", code: "INVALID_ATTACHMENT" });
+    }
+    const mime = file.mimeType.toLowerCase();
+    const allowed = /^(image\/(png|jpeg|webp))$/.test(mime) || mime === "application/pdf" || /^(text\/|application\/(json|xml))/.test(mime) || /\.(txt|md|csv|json|xml|js|jsx|ts|tsx|py|html|css|sql|log|yaml|yml)$/i.test(file.name);
+    if (!allowed) return res.status(415).json({ error: `Formato não suportado: ${file.name}`, code: "UNSUPPORTED_FILE" });
+    const bytes = Buffer.from(file.data, "base64");
+    attachmentBytes += bytes.length;
+    if (attachmentBytes > 8 * 1024 * 1024) return res.status(413).json({ error: "Os anexos juntos ultrapassam 8 MB.", code: "ATTACHMENTS_TOO_LARGE" });
+    const safeName = file.name.replace(/[\\/\r\n]/g, "_").slice(0, 120);
+    if (mime.startsWith("image/") || mime === "application/pdf") {
+      attachmentParts.push({ inlineData: { mimeType: mime, data: bytes.toString("base64") } });
+      attachmentText += `\n[Anexo enviado: ${safeName}]`;
+    } else {
+      const textContent = bytes.toString("utf8").slice(0, 120000);
+      attachmentText += `\n\n--- CONTEÚDO DO ARQUIVO ${safeName} ---\n${textContent}\n--- FIM DO ARQUIVO ---`;
+    }
+  }
+  const modeInstruction: Record<string, string> = {
+    developer: "[Modo desenvolvedor: analise tecnicamente, explique a causa provável e proponha correções seguras e testáveis.]",
+    teacher: "[Modo professor: explique passo a passo, em linguagem clara, com exemplos e verifique a compreensão.]",
+    sustainability: "[Modo socioambiental: priorize sustentabilidade, impactos ambientais e soluções práticas; diferencie fatos de estimativas.]",
+    auto: "",
+  };
+  const safeMode = typeof mode === "string" && mode in modeInstruction ? mode : "auto";
+  const promptMessage = `${modeInstruction[safeMode]}\n${cleanMessage}${attachmentText}`.trim();
+
   logger.info("Nova mensagem recebida", {
     userId: sid,
     ip: req.clientIp,
@@ -287,11 +323,20 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
 
     // Só turnos "assistant" assinados por este servidor para ESTE usuário entram no contexto.
     const trustedHistory = filterTrustedHistory(history, sid) as ChatMessage[];
-    const { reply, sources } = await getReply(cleanMessage, trustedHistory, updatedMemory);
+    const { reply, sources } = await getReply(promptMessage, trustedHistory, updatedMemory, attachmentParts);
+
+    let savedConversationId: string | undefined;
+    try {
+      const savedUserText = cleanMessage + (attachments.length ? `\n\n[Anexos: ${attachments.map((a: { name: string }) => String(a.name).replace(/[\\/\r\n]/g, "_").slice(0, 120)).join(", ")}]` : "");
+      savedConversationId = await persistTurn(sid, typeof conversationId === "string" ? conversationId : undefined, savedUserText, reply, signReply(sid, reply));
+    } catch (persistError) {
+      logger.error("Não foi possível persistir a conversa", { userId: sid, error: String(persistError) });
+    }
 
     const response: ChatResponse = {
       reply,
       sessionId: sid,
+      ...(savedConversationId ? { conversationId: savedConversationId } : {}),
       timestamp: new Date().toISOString(),
       sig: signReply(sid, reply),
       ...(sources && sources.length ? { sources } : {}),
@@ -375,6 +420,9 @@ router.get("/health", (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
   });
 });
+
+// ─── Histórico persistente de conversas (rotas autenticadas) ───────────────
+router.use(conversationsRouter);
 
 // ─── Memória do próprio usuário (consultar, corrigir, apagar) ────────────────
 

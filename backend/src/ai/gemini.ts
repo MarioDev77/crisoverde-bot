@@ -46,8 +46,8 @@ export function getGeminiConfig(): GeminiConfig {
     baseUrl: (process.env.GEMINI_API_BASE_URL || "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, ""),
     model: (process.env.GEMINI_MODEL || "gemini-3.8-flash").trim(),
     fallbackModel: (process.env.GEMINI_FALLBACK_MODEL || "").trim() || undefined,
-    maxOutputTokens: envInt("GEMINI_MAX_OUTPUT_TOKENS", 2048, 64, 65536),
-    timeoutMs: envInt("GEMINI_TIMEOUT_MS", 30000, 2000, 120000),
+    maxOutputTokens: envInt("GEMINI_MAX_OUTPUT_TOKENS", 1536, 64, 65536),
+    timeoutMs: envInt("GEMINI_TIMEOUT_MS", 12000, 2000, 120000),
     temperature: envFloat("GEMINI_TEMPERATURE", 0, 2),
     thinkingLevel: (THINKING_LEVELS as string[]).includes(level) ? (level as ThinkingLevel) : undefined,
   };
@@ -58,6 +58,7 @@ export function getGeminiConfig(): GeminiConfig {
 export interface GeminiTurn {
   role: "user" | "model";
   text: string;
+  parts?: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
 }
 
 export interface GenerateInput {
@@ -160,7 +161,7 @@ async function callOnce(cfg: GeminiConfig, input: GenerateInput, opts: CallOptio
 
   const body = {
     systemInstruction: { parts: [{ text: input.systemInstruction }] },
-    contents: input.turns.map((t) => ({ role: t.role, parts: [{ text: t.text }] })),
+    contents: input.turns.map((t) => ({ role: t.role, parts: t.parts?.length ? t.parts : [{ text: t.text }] })),
     generationConfig,
   };
 
@@ -218,7 +219,7 @@ async function callOnce(cfg: GeminiConfig, input: GenerateInput, opts: CallOptio
 
 // ─── Chamada com retry, fallback e prazo total ───────────────────────────────
 
-const BACKOFF_MS = [400, 1200];
+const BACKOFF_MS = [250];
 const MODEL_MAX_OUTPUT_TOKENS = 65536; // teto de saída dos modelos Gemini 3.x (documentação oficial)
 
 /**
@@ -232,21 +233,19 @@ export function _resetGeminiState(): void {
 
 /**
  * Estratégia:
- *  1. Modelo principal, até 3 tentativas para falhas TRANSITÓRIAS (rede, 5xx, timeout).
+ *  1. Modelo principal, com no máximo uma repetição curta para falhas TRANSITÓRIAS (rede, 5xx, timeout).
  *  2. 429 não é repetido no mesmo modelo (a cota não volta em milissegundos): vai direto ao
  *     GEMINI_FALLBACK_MODEL, se configurado.
  *  3. 400 com thinkingConfig → repete uma vez sem thinkingConfig (o modelo pode não aceitar o nível).
- *  4. Resposta vazia por MAX_TOKENS (o "pensamento" consumiu o limite) → repete UMA vez com thinkingLevel
- *     "low" e o dobro de tokens de saída (até o teto do modelo). Não usa "minimal": o gemini-3.8-flash
- *     não o aceita (a documentação oficial diz que retorna erro).
- *  5. Todo o processo respeita um prazo total de 2 × GEMINI_TIMEOUT_MS.
+ *  4. Resposta vazia por MAX_TOKENS pode ser repetida uma vez com configuração de raciocínio reduzida, quando suportada pelo modelo.
+ *  5. Todo o processo respeita um prazo total próximo de GEMINI_TIMEOUT_MS, com uma única repetição curta para falhas transitórias.
  */
 export async function generate(input: GenerateInput): Promise<GenerateResult> {
   const cfg = getGeminiConfig();
   if (!cfg.apiKey) throw new AIProviderError("auth", "GEMINI_API_KEY não configurada");
 
   const startedAt = Date.now();
-  const deadline = startedAt + cfg.timeoutMs * 2;
+  const deadline = startedAt + cfg.timeoutMs + 500;
   let attempts = 0;
   let lastError: AIProviderError | undefined;
 

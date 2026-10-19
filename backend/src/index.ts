@@ -26,6 +26,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
 import routes from "./routes";
+import { initConversationsDB } from "./conversations";
 import { logger } from "./logger";
 import { initDB } from "./memory";
 import { initSecurityDB } from "./security";
@@ -110,12 +111,12 @@ app.use(cors({
     }
   },
   credentials: true, // necessário para o navegador enviar/receber o cookie de sessão
-  methods: ["GET", "POST", "DELETE"],
+  methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-admin-token"],
 }));
 
 app.use(cookieParser());
-app.use(express.json({ limit: "50kb" }));
+app.use(express.json({ limit: "12mb" }));
 app.use(morgan("dev"));
 
 // ─── Middlewares de Segurança (ordem importa!) ────────────────────────────────
@@ -167,7 +168,8 @@ async function bootstrap() {
 
   try {
     await initAuthDB();
-    logger.info("PostgreSQL: tabelas users e chat_events prontas ✅");
+    await initConversationsDB();
+    logger.info("PostgreSQL: tabelas users, chat_events e conversas prontas ✅");
   } catch (err) {
     logger.error("Erro ao inicializar auth tables: " + err);
     process.exit(1); // sem tabela de usuários, login/cadastro não funcionam — melhor falhar cedo

@@ -20,6 +20,9 @@ function looksLikeSearch(message: string): boolean {
   return SEARCH_HINT_KEYWORDS.some((kw) => normalized.includes(kw));
 }
 
+export interface ChatAttachment { name: string; mimeType: string; data: string; }
+export type ChatMode = "auto" | "developer" | "teacher" | "sustainability";
+
 export interface ChatError {
   convId: string;
   message: string;
@@ -57,7 +60,7 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
 
   /** `base` = histórico ANTES da mensagem do usuário (já exibida). Não acrescenta o balão do usuário. */
   const submit = useCallback(
-    async (convId: string, text: string, base: UiMessage[]) => {
+    async (convId: string, text: string, base: UiMessage[], attachments: ChatAttachment[] = [], mode: ChatMode = "auto") => {
       if (sendingRef.current) return;
       sendingRef.current = true;
       const controller = new AbortController();
@@ -73,6 +76,9 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
           "/chat",
           {
             message: text,
+            ...(convId.startsWith("local_") ? {} : { conversationId: convId }),
+            attachments,
+            mode,
             history: base
               .slice(-20)
               .map((m) =>
@@ -83,7 +89,10 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
           },
           { signal: controller.signal }
         );
-        append(convId, { id: uid(), role: "assistant", content: data.reply, sources: data.sources, sig: data.sig });
+        const finalId = data.conversationId && data.conversationId !== convId ? data.conversationId : convId;
+        if (finalId !== convId) { store.replaceId(convId, finalId); }
+        append(finalId, { id: uid(), role: "assistant", content: data.reply, sources: data.sources, sig: data.sig });
+        if (data.conversationId) void store.refresh();
       } catch (err) {
         if (controller.signal.aborted) {
           setError({ convId, message: "Resposta interrompida.", retryable: true });
@@ -103,12 +112,12 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
         setSearching(false);
       }
     },
-    [append, searchEnabled]
+    [append, searchEnabled, store]
   );
 
   /** Envia `text` na conversa ativa, ou cria uma conversa nova se não houver ativa. */
   const send = useCallback(
-    (text: string) => {
+    (text: string, attachments: ChatAttachment[] = [], mode: ChatMode = "auto") => {
       const trimmed = text.trim();
       if (!trimmed || sendingRef.current) return;
       const userMsg: UiMessage = { id: uid(), role: "user", content: trimmed };
@@ -123,7 +132,7 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
         convId = create(userMsg);
         base = [];
       }
-      void submit(convId, trimmed, base);
+      void submit(convId, trimmed, base, attachments, mode);
     },
     [append, create, submit]
   );

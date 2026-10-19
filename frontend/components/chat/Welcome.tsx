@@ -48,10 +48,9 @@ export function Welcome({ onPick, searchEnabled }: Props) {
     },
     {
       title: "Anexe arquivos",
-      subtitle: "em breve",
+      subtitle: "imagens, PDFs e código",
       icon: <FileText size={22} />,
-      prompt: "",
-      disabledReason: "O envio de arquivos ainda não está disponível.",
+      prompt: "Anexe um arquivo pelo campo de mensagem e diga o que deseja analisar.",
     },
   ];
 

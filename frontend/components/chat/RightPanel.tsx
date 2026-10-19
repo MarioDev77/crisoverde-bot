@@ -75,9 +75,9 @@ export function RightPanel({ health, onOpenMemory, onPick, onClose, className = 
           <Resource
             icon={<FileSearch size={18} />}
             title="Análise de arquivos"
-            subtitle="PDF, imagens, código"
-            badge="Em breve"
-            tone="soon"
+            subtitle="PDF, imagens e código"
+            badge="Disponível"
+            tone="ok"
           />
           <Resource
             icon={<Globe size={18} />}
@@ -106,15 +106,15 @@ export function RightPanel({ health, onOpenMemory, onPick, onClose, className = 
             icon={<GraduationCap size={18} />}
             title="Modo professor"
             subtitle="Explicações passo a passo"
-            badge="Em breve"
-            tone="soon"
+            badge="Disponível"
+            tone="ok"
           />
           <Resource
             icon={<ShieldCheck size={18} />}
             title="Modo socioambiental"
             subtitle="Dúvidas sobre sustentabilidade"
-            badge="Em breve"
-            tone="soon"
+            badge="Disponível"
+            tone="ok"
           />
         </ul>
       </section>

@@ -21,6 +21,8 @@ interface Props {
   pendingId: string | null;
   onNewChat: () => void;
   onSelect: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  onRemove: (id: string) => void;
   onOpenMemory: () => void;
   onFocusSearch: () => void;
   onLogout: () => void;
@@ -117,15 +119,14 @@ export function Sidebar(p: Props) {
               conversations={p.conversations}
               activeId={p.activeId}
               pendingId={p.pendingId}
-              onSelect={(id) => {
-                p.onSelect(id);
-                p.onCloseDrawer();
-              }}
+              onSelect={(id) => { p.onSelect(id); p.onCloseDrawer(); }}
+              onRename={p.onRename}
+              onRemove={p.onRemove}
               filtering={p.filtering}
             />
           </div>
           <p className="px-6 pb-2 text-[11px] leading-snug text-criso-faint">
-            Por enquanto as conversas ficam salvas só até você recarregar a página.
+            Suas conversas ficam salvas na sua conta. Reabra, renomeie ou exclua quando quiser.
           </p>
         </div>
         {p.collapsed && <div className="hidden flex-1 lg:block" />}

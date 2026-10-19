@@ -7,7 +7,7 @@ import { buildMemoryContext } from "../memory";
 import { logger } from "../logger";
 import { isSearchProviderConfigured, needsWebSearch, webSearch } from "../search";
 import { buildSystemPrompt, SearchStatus } from "../prompts";
-import { generate, GenerateResult } from "./gemini";
+import { generate, GenerateResult, GeminiTurn } from "./gemini";
 import { sanitizeHistory, selectHistory, toTurns } from "./context";
 
 export interface GetReplyResult {
@@ -50,7 +50,8 @@ function buildSearchAugmentedMessage(
 export async function getReply(
   userMessage: string,
   history: ChatMessage[] = [],
-  memory?: UserMemory
+  memory?: UserMemory,
+  attachmentParts?: GeminiTurn["parts"]
 ): Promise<GetReplyResult> {
   // A memória já vem carregada pela rota (evita uma consulta extra ao banco por mensagem).
   const memoryContext = memory
@@ -80,7 +81,7 @@ export async function getReply(
 
   const trimmedHistory = selectHistory(sanitizeHistory(history));
   const systemInstruction = buildSystemPrompt({ memoryContext, searchStatus });
-  const turns = toTurns(trimmedHistory, finalUserText);
+  const turns = toTurns(trimmedHistory, finalUserText, attachmentParts);
 
   logger.debug("Enviando para Gemini", {
     searchStatus,

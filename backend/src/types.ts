@@ -6,9 +6,12 @@ export interface ChatMessage {
 }
 
 export interface ChatRequest {
-  sessionId: string;
+  sessionId?: string;
+  conversationId?: string;
   message: string;
   history?: ChatMessage[];
+  mode?: "auto" | "developer" | "teacher" | "sustainability";
+  attachments?: Array<{ name: string; mimeType: string; data: string }>;
 }
 
 export interface SourceRef {
@@ -19,6 +22,7 @@ export interface SourceRef {
 export interface ChatResponse {
   reply: string;
   sessionId: string;
+  conversationId?: string;
   timestamp: string;
   /** Presente apenas quando a resposta usou resultados de busca externa. */
   sources?: SourceRef[];

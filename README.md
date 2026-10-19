@@ -119,3 +119,7 @@ DATABASE_URL=postgresql://... npm run test:e2e   # sobe o servidor real + Gemini
 - Filtros de dados sensíveis e de injeção são heurísticas: reduzem o risco, não o eliminam.
 - Nada foi testado contra a API real do Gemini (nem a qualidade das respostas): rode `npm run eval:live` com a sua chave.
 - A detecção de injeção por padrões não generaliza bem (ver `docs/AVALIACAO.md`); a defesa principal é a separação instruções/dados.
+
+## CRISO.AI — chat atualizado
+
+As funcionalidades de histórico persistente, anexos multimodais, ditado por voz e modos de resposta estão descritas em `docs/redesign/FASE-4-IMPLEMENTADA.md`. Para diagnosticar HTTP 503 e reduzir a latência no backend Railway, consulte `docs/DEPLOY-RAILWAY-503.md`.
