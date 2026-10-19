@@ -45,6 +45,8 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
   // Trava síncrona: setState é assíncrono, então dois Enter rápidos poderiam enviar duas vezes.
   const sendingRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
+  // Último envio (texto, anexos, modo): "Tentar de novo" reenvia exatamente isso, sem perder os arquivos.
+  const lastSendRef = useRef<{ text: string; attachments: ChatAttachment[]; mode: ChatMode } | null>(null);
   const activeRef = useRef(active);
   activeRef.current = active;
 
@@ -98,7 +100,7 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
           setError({ convId, message: "Resposta interrompida.", retryable: true });
         } else if (err instanceof ApiError) {
           // 429 por limite DIÁRIO e erros 4xx (mensagem inválida, bloqueio) não adiantam repetir.
-          const retryable = err.code !== "DAILY_LIMIT" && (err.status === 429 || err.status >= 500);
+          const retryable = err.code !== "DAILY_LIMIT" && err.code !== "AI_QUOTA_DAILY" && (err.status === 429 || err.status >= 500);
           setError({ convId, message: err.message, retryable });
           if (retryable && err.retryAfterSeconds) setRetryIn(Math.min(err.retryAfterSeconds, 120));
         } else {
@@ -132,6 +134,7 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
         convId = create(userMsg);
         base = [];
       }
+      lastSendRef.current = { text: trimmed, attachments, mode };
       void submit(convId, trimmed, base, attachments, mode);
     },
     [append, create, submit]
@@ -143,7 +146,8 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
     if (!current || sendingRef.current) return;
     const last = current.messages[current.messages.length - 1];
     if (!last || last.role !== "user") return;
-    void submit(current.id, last.content, current.messages.slice(0, -1));
+    const prev = lastSendRef.current && lastSendRef.current.text === last.content ? lastSendRef.current : null;
+    void submit(current.id, last.content, current.messages.slice(0, -1), prev?.attachments ?? [], prev?.mode ?? "auto");
   }, [submit]);
 
   /** Interrompe a espera pela resposta. O servidor pode já ter contado a mensagem na cota diária. */

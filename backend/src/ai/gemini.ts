@@ -34,6 +34,8 @@ export interface GeminiConfig {
   fallbackModel?: string;
   maxOutputTokens: number;
   timeoutMs: number;
+  /** Teto de chamadas por minuto ao Gemini neste servidor (0 = sem controle). Evita estourar a cota (429). */
+  maxRpm: number;
   temperature?: number;
   thinkingLevel?: ThinkingLevel;
 }
@@ -47,7 +49,8 @@ export function getGeminiConfig(): GeminiConfig {
     model: (process.env.GEMINI_MODEL || "gemini-3.8-flash").trim(),
     fallbackModel: (process.env.GEMINI_FALLBACK_MODEL || "").trim() || undefined,
     maxOutputTokens: envInt("GEMINI_MAX_OUTPUT_TOKENS", 1536, 64, 65536),
-    timeoutMs: envInt("GEMINI_TIMEOUT_MS", 12000, 2000, 120000),
+    timeoutMs: envInt("GEMINI_TIMEOUT_MS", 20000, 2000, 120000),
+    maxRpm: envInt("GEMINI_MAX_RPM", 0, 0, 10000),
     temperature: envFloat("GEMINI_TEMPERATURE", 0, 2),
     thinkingLevel: (THINKING_LEVELS as string[]).includes(level) ? (level as ThinkingLevel) : undefined,
   };
@@ -98,13 +101,23 @@ export class AIProviderError extends Error {
   kind: AIErrorKind;
   status?: number;
   retryAfterSeconds?: number;
+  /** 429 por cota DIÁRIA (esperar segundos não resolve). */
+  daily?: boolean;
+  /** Identificador da cota estourada, como o Google informa (útil nos logs). */
+  quotaId?: string;
 
-  constructor(kind: AIErrorKind, message: string, opts: { status?: number; retryAfterSeconds?: number } = {}) {
+  constructor(
+    kind: AIErrorKind,
+    message: string,
+    opts: { status?: number; retryAfterSeconds?: number; daily?: boolean; quotaId?: string } = {}
+  ) {
     super(message);
     this.name = "AIProviderError";
     this.kind = kind;
     this.status = opts.status;
     this.retryAfterSeconds = opts.retryAfterSeconds;
+    this.daily = opts.daily;
+    this.quotaId = opts.quotaId;
   }
 }
 
@@ -123,6 +136,20 @@ function parseRetryDelay(body: any): number | undefined {
   return undefined;
 }
 
+/** Lê error.details[].violations[].quotaId (QuotaFailure) para saber QUAL cota estourou (minuto x dia). */
+function parseQuota(body: any, apiMsg: string): { quotaId?: string; daily: boolean } {
+  const details = body?.error?.details;
+  let quotaId: string | undefined;
+  if (Array.isArray(details)) {
+    for (const d of details) {
+      const v = Array.isArray(d?.violations) ? d.violations[0] : undefined;
+      if (v?.quotaId) { quotaId = String(v.quotaId).slice(0, 120); break; }
+    }
+  }
+  const daily = /PerDay/i.test(quotaId ?? "") || /per day|requests per day/i.test(apiMsg);
+  return { quotaId, daily };
+}
+
 function classifyHttpError(status: number, body: any, headers: Headers): AIProviderError {
   const apiMsg = String(body?.error?.message ?? "").slice(0, 300);
   const apiStatus = String(body?.error?.status ?? "");
@@ -130,7 +157,8 @@ function classifyHttpError(status: number, body: any, headers: Headers): AIProvi
   const retryAfterSeconds = parseRetryDelay(body) ?? (Number.isFinite(retryHeader) ? retryHeader : undefined);
 
   if (status === 429 || apiStatus === "RESOURCE_EXHAUSTED") {
-    return new AIProviderError("rate_limit", `Gemini 429: ${apiMsg}`, { status, retryAfterSeconds });
+    const q = parseQuota(body, apiMsg);
+    return new AIProviderError("rate_limit", `Gemini 429: ${apiMsg}`, { status, retryAfterSeconds, daily: q.daily, quotaId: q.quotaId });
   }
   if (status === 401 || status === 403 || /API_KEY|API key/i.test(apiMsg)) {
     return new AIProviderError("auth", `Gemini ${status}: ${apiMsg}`, { status });
@@ -219,7 +247,7 @@ async function callOnce(cfg: GeminiConfig, input: GenerateInput, opts: CallOptio
 
 // ─── Chamada com retry, fallback e prazo total ───────────────────────────────
 
-const BACKOFF_MS = [250];
+const BACKOFF_MS = [400, 1200];
 const MODEL_MAX_OUTPUT_TOKENS = 65536; // teto de saída dos modelos Gemini 3.x (documentação oficial)
 
 /**
@@ -227,25 +255,60 @@ const MODEL_MAX_OUTPUT_TOKENS = 65536; // teto de saída dos modelos Gemini 3.x 
  * Evita repetir a chamada falha — e pagar a latência dupla — a cada mensagem.
  */
 const rejectedThinking = new Set<string>();
+
+/** Instantes das últimas chamadas HTTP ao Gemini (janela de 60s), para o controle GEMINI_MAX_RPM. */
+const callTimes: number[] = [];
+const RPM_WINDOW_MS = 60_000;
+const RPM_MAX_WAIT_MS = 8_000;
+
 export function _resetGeminiState(): void {
   rejectedThinking.clear();
+  callTimes.length = 0;
+}
+
+/**
+ * Reserva uma "vaga" de chamada. Com GEMINI_MAX_RPM definido, espera (até RPM_MAX_WAIT_MS) a janela
+ * liberar em vez de mandar a requisição e tomar 429; se a espera for maior, falha logo com rate_limit
+ * e o tempo que falta — a pessoa vê "tente em Xs" em vez de esperar à toa.
+ */
+async function reserveCallSlot(maxRpm: number, budgetMs: number): Promise<void> {
+  if (maxRpm <= 0) return;
+  while (true) {
+    const now = Date.now();
+    while (callTimes.length && callTimes[0] <= now - RPM_WINDOW_MS) callTimes.shift();
+    if (callTimes.length < maxRpm) {
+      callTimes.push(now);
+      return;
+    }
+    const waitMs = callTimes[0] + RPM_WINDOW_MS - now;
+    if (waitMs > Math.min(RPM_MAX_WAIT_MS, budgetMs)) {
+      throw new AIProviderError("rate_limit", `Controle local de ritmo (${maxRpm}/min)`, { retryAfterSeconds: Math.ceil(waitMs / 1000) });
+    }
+    await sleep(waitMs + 20);
+  }
 }
 
 /**
  * Estratégia:
- *  1. Modelo principal, com no máximo uma repetição curta para falhas TRANSITÓRIAS (rede, 5xx, timeout).
+ *  1. Modelo principal, até 3 tentativas para falhas TRANSITÓRIAS (rede, 5xx, timeout).
  *  2. 429 não é repetido no mesmo modelo (a cota não volta em milissegundos): vai direto ao
  *     GEMINI_FALLBACK_MODEL, se configurado.
  *  3. 400 com thinkingConfig → repete uma vez sem thinkingConfig (o modelo pode não aceitar o nível).
  *  4. Resposta vazia por MAX_TOKENS pode ser repetida uma vez com configuração de raciocínio reduzida, quando suportada pelo modelo.
- *  5. Todo o processo respeita um prazo total próximo de GEMINI_TIMEOUT_MS, com uma única repetição curta para falhas transitórias.
+ *  5. Todo o processo respeita um prazo total de 2 × GEMINI_TIMEOUT_MS (o dobro de cada, se houver anexo de imagem/PDF).
+ *  6. 429 por cota POR MINUTO com espera curta (≤ 8s): espera e repete uma vez. Cota DIÁRIA: não repete.
+ *  7. GEMINI_MAX_RPM (opcional): segura as chamadas no servidor para não estourar a cota por minuto.
  */
 export async function generate(input: GenerateInput): Promise<GenerateResult> {
   const cfg = getGeminiConfig();
   if (!cfg.apiKey) throw new AIProviderError("auth", "GEMINI_API_KEY não configurada");
 
   const startedAt = Date.now();
-  const deadline = startedAt + cfg.timeoutMs + 500;
+  // Com anexos (imagem/PDF) o modelo demora mais: dobra o tempo por chamada.
+  const hasMedia = input.turns.some((t) => t.parts?.some((p) => p.inlineData));
+  const callTimeoutMs = hasMedia ? cfg.timeoutMs * 2 : cfg.timeoutMs;
+  const deadline = startedAt + callTimeoutMs * 2;
+  let rateRetried = false;
   let attempts = 0;
   let lastError: AIProviderError | undefined;
 
@@ -268,7 +331,8 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
       if (thinkingLevel && rejectedThinking.has(`${model}|${thinkingLevel}`)) thinkingLevel = undefined;
 
       try {
-        const out = await callOnce(cfg, input, { model, thinkingLevel, maxOutputTokens, timeoutMs: Math.min(cfg.timeoutMs, remaining) });
+        await reserveCallSlot(cfg.maxRpm, remaining);
+        const out = await callOnce(cfg, input, { model, thinkingLevel, maxOutputTokens, timeoutMs: Math.min(callTimeoutMs, remaining) });
 
         if (out.text || out.blocked) {
           const result: GenerateResult = { ...out, latencyMs: Date.now() - startedAt, attempts };
@@ -304,6 +368,13 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
           const wait = BACKOFF_MS[transientTries++];
           logger.warn("Falha transitória no Gemini — tentando de novo", { model, kind: e.kind, wait, error: e.message });
           await sleep(wait);
+          continue;
+        }
+        if (e.kind === "rate_limit" && !e.daily && !rateRetried && e.retryAfterSeconds && e.retryAfterSeconds <= 8) {
+          // Cota por MINUTO com espera curta: vale esperar e repetir uma vez (cota diária não volta em segundos).
+          rateRetried = true;
+          logger.warn("Gemini 429 por minuto — esperando e repetindo uma vez", { model, wait: e.retryAfterSeconds, quotaId: e.quotaId });
+          await sleep(e.retryAfterSeconds * 1000 + 200);
           continue;
         }
         if (e.kind === "auth" || e.kind === "bad_request") throw e; // fallback não resolve chave/requisição inválida

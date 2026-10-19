@@ -152,6 +152,45 @@ async function main() {
     assert.ok(seen[1].url.includes("/models/gemini-reserva:"));
   });
 
+  await t("429 por minuto com espera curta (1s) → espera e repete uma vez no mesmo modelo", async () => {
+    queue.push({ status: 429, body: { error: { message: "quota", status: "RESOURCE_EXHAUSTED", details: [
+      { "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerMinutePerProjectPerModel-FreeTier" }] },
+      { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "1s" },
+    ] } } });
+    queue.push(ok("passou depois da espera"));
+    const t0 = Date.now();
+    const r = await generate(input);
+    assert.strictEqual(r.text, "passou depois da espera");
+    assert.strictEqual(r.attempts, 2);
+    assert.ok(Date.now() - t0 >= 1000, "deve ter esperado o retryDelay");
+  });
+
+  await t("429 por cota DIÁRIA → não espera nem repete; erro marcado como daily", async () => {
+    queue.push({ status: 429, body: { error: { message: "quota", status: "RESOURCE_EXHAUSTED", details: [
+      { "@type": "type.googleapis.com/google.rpc.QuotaFailure", violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] },
+      { "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: "2s" },
+    ] } } });
+    const t0 = Date.now();
+    await assert.rejects(generate(input), (e: any) => e.kind === "rate_limit" && e.daily === true && /PerDay/.test(e.quotaId));
+    assert.strictEqual(seen.length, 1);
+    assert.ok(Date.now() - t0 < 1500, "não deve esperar em cota diária");
+  });
+
+  await t("GEMINI_MAX_RPM=1 → 2ª chamada na mesma janela falha logo com rate_limit (sem bater no Gemini)", async () => {
+    process.env.GEMINI_MAX_RPM = "1";
+    try {
+      queue.push(ok("primeira"));
+      const r = await generate(input);
+      assert.strictEqual(r.text, "primeira");
+      const t0 = Date.now();
+      await assert.rejects(generate(input), (e: any) => e.kind === "rate_limit" && e.retryAfterSeconds >= 50);
+      assert.strictEqual(seen.length, 1, "a 2ª chamada não pode ter chegado ao Gemini");
+      assert.ok(Date.now() - t0 < 1000);
+    } finally {
+      delete process.env.GEMINI_MAX_RPM;
+    }
+  });
+
   await t("400 com thinkingConfig → repete sem thinkingConfig", async () => {
     queue.push({ status: 400, body: { error: { message: "thinking level not supported", status: "INVALID_ARGUMENT" } } });
     queue.push(ok("sem thinking"));

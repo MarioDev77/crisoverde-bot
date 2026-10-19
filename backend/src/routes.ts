@@ -319,11 +319,14 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
     const suspicious = (req.detectedPatterns?.length ?? 0) > 0;
     const updatedMemory = suspicious ? memory : extractFromMessage(cleanMessage, memory);
     await saveMemory(sid, updatedMemory);
-    await logChatEvent(sid);
 
     // Só turnos "assistant" assinados por este servidor para ESTE usuário entram no contexto.
     const trustedHistory = filterTrustedHistory(history, sid) as ChatMessage[];
     const { reply, sources } = await getReply(promptMessage, trustedHistory, updatedMemory, attachmentParts);
+
+    // A mensagem só entra na cota diária depois que a IA respondeu: falhas do provedor
+    // (429/503) e cliques em "Tentar de novo" não gastam as mensagens do dia da pessoa.
+    await logChatEvent(sid);
 
     let savedConversationId: string | undefined;
     try {
@@ -348,6 +351,8 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
       logger.error("Erro ao chamar Gemini", {
         kind: error.kind,
         status: error.status,
+        quotaId: error.quotaId,
+        daily: error.daily,
         error: error.message,
       });
 
@@ -356,6 +361,18 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
       // Mensagens ao usuário nunca expõem chave, modelo, stack ou detalhes do provedor.
       switch (error.kind) {
         case "rate_limit": {
+          if (error.daily) {
+            // Cota DIÁRIA do provedor esgotada: esperar alguns segundos não adianta.
+            const retryAfterSeconds = error.retryAfterSeconds ?? 3600;
+            const err: ErrorResponse = {
+              error: "A CRISO.AI atingiu o limite de uso de hoje 🌿 Volte mais tarde para continuar.",
+              code: "AI_QUOTA_DAILY",
+              timestamp: now,
+              retryAfterSeconds,
+            };
+            res.set("Retry-After", String(retryAfterSeconds));
+            return res.status(429).json(err);
+          }
           const retryAfterSeconds = error.retryAfterSeconds ?? 30;
           const err: ErrorResponse = {
             error: "Estamos com muita gente conversando agora 🌿 Tenta de novo em alguns segundos.",
