@@ -6,6 +6,7 @@ import { MessageText } from "@/components/MessageText";
 import type { UiMessage } from "@/lib/types";
 import type { ChatError } from "@/hooks/useChat";
 import { Mascot } from "./Mascot";
+import { TypedMessage } from "./TypedMessage";
 
 interface Props {
   messages: UiMessage[];
@@ -17,10 +18,21 @@ interface Props {
   locked: boolean;
   onRetry: () => void;
   onStop: () => void;
+  /** Id da resposta que está sendo escrita na tela (null = nenhuma). */
+  typingId: string | null;
+  /** Encerra o efeito (terminou sozinho ou a pessoa pediu "Mostrar tudo"). */
+  onFinishTyping: () => void;
 }
 
-export function MessageList({ messages, busy, searching, error, retryIn, locked, onRetry, onStop }: Props) {
+export function MessageList({ messages, busy, searching, error, retryIn, locked, onRetry, onStop, typingId, onFinishTyping }: Props) {
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  /** Durante a escrita, acompanha o fim da conversa — mas só se a pessoa não rolou para cima para reler. */
+  const followTyping = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 140) el.scrollTop = el.scrollHeight;
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -36,7 +48,13 @@ export function MessageList({ messages, busy, searching, error, retryIn, locked,
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-5">
         {messages.map((m) => (
-          <Bubble key={m.id} message={m} />
+          <Bubble
+            key={m.id}
+            message={m}
+            typing={m.id === typingId}
+            onTick={followTyping}
+            onFinishTyping={onFinishTyping}
+          />
         ))}
 
         {busy && (
@@ -80,7 +98,17 @@ export function MessageList({ messages, busy, searching, error, retryIn, locked,
   );
 }
 
-function Bubble({ message: m }: { message: UiMessage }) {
+function Bubble({
+  message: m,
+  typing,
+  onTick,
+  onFinishTyping,
+}: {
+  message: UiMessage;
+  typing: boolean;
+  onTick: () => void;
+  onFinishTyping: () => void;
+}) {
   if (m.role === "user") {
     return (
       <div className="flex justify-end">
@@ -95,8 +123,20 @@ function Bubble({ message: m }: { message: UiMessage }) {
     <div className="flex items-end gap-2.5">
       <Mascot size={30} className="shrink-0" />
       <div className="min-w-0 max-w-[88%] rounded-2xl rounded-bl-md border border-criso-line bg-criso-surface px-4 py-2.5 text-sm leading-relaxed sm:max-w-[80%]">
-        <MessageText text={m.content} />
-        {m.sources && m.sources.length > 0 && (
+        {typing ? (
+          <>
+            <TypedMessage text={m.content} onDone={onFinishTyping} onTick={onTick} />
+            <button
+              onClick={onFinishTyping}
+              className="mt-2 text-xs text-criso-muted underline-offset-2 hover:text-criso-accent hover:underline"
+            >
+              Mostrar tudo
+            </button>
+          </>
+        ) : (
+          <MessageText text={m.content} />
+        )}
+        {!typing && m.sources && m.sources.length > 0 && (
           <div className="mt-2 border-t border-criso-line pt-2 text-xs text-criso-muted">
             <p className="mb-1 font-medium">Fontes:</p>
             <ul className="space-y-0.5">

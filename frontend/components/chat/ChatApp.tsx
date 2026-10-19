@@ -60,6 +60,7 @@ export function ChatApp() {
 
   function newChat() {
     // Não apaga nada: só volta para a tela inicial. A conversa anterior continua na lista.
+    chat.finishTyping();
     store.startNew();
     setInput("");
     setDrawerOpen(false);
@@ -94,7 +95,10 @@ export function ChatApp() {
         activeId={activeId}
         pendingId={chat.pendingId}
         onNewChat={newChat}
-        onSelect={store.select}
+        onSelect={(id) => {
+          chat.finishTyping(); // trocar de conversa não reinicia a animação ao voltar
+          store.select(id);
+        }}
         onRename={(id, title) => void store.rename(id, title).catch(() => alert("Não foi possível renomear a conversa."))}
         onRemove={(id) => void store.remove(id).catch(() => alert("Não foi possível excluir a conversa."))}
         onOpenMemory={() => {
@@ -131,6 +135,8 @@ export function ChatApp() {
                 locked={chat.locked}
                 onRetry={chat.retry}
                 onStop={chat.stop}
+                typingId={chat.typingId}
+                onFinishTyping={chat.finishTyping}
               />
             )}
 

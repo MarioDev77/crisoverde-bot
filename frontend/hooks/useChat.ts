@@ -41,6 +41,8 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<ChatError | null>(null);
   const [retryIn, setRetryIn] = useState(0);
+  // Id da resposta que está sendo "escrita" na tela (efeito visual; só respostas novas, nunca o histórico).
+  const [typingId, setTypingId] = useState<string | null>(null);
 
   // Trava síncrona: setState é assíncrono, então dois Enter rápidos poderiam enviar duas vezes.
   const sendingRef = useRef(false);
@@ -70,6 +72,7 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
 
       setError(null);
       setRetryIn(0);
+      setTypingId(null); // um novo envio completa na hora a resposta anterior
       setPendingId(convId);
       setSearching(searchEnabled && looksLikeSearch(text));
 
@@ -93,7 +96,9 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
         );
         const finalId = data.conversationId && data.conversationId !== convId ? data.conversationId : convId;
         if (finalId !== convId) { store.replaceId(convId, finalId); }
-        append(finalId, { id: uid(), role: "assistant", content: data.reply, sources: data.sources, sig: data.sig });
+        const replyId = uid();
+        append(finalId, { id: replyId, role: "assistant", content: data.reply, sources: data.sources, sig: data.sig });
+        setTypingId(replyId);
         if (data.conversationId) void store.refresh();
       } catch (err) {
         if (controller.signal.aborted) {
@@ -153,5 +158,8 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
   /** Interrompe a espera pela resposta. O servidor pode já ter contado a mensagem na cota diária. */
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
-  return { pendingId, searching, error, retryIn, locked: pendingId !== null, send, retry, stop };
+  /** Termina o efeito de escrita: o texto completo aparece (ou já terminou sozinho). */
+  const finishTyping = useCallback(() => setTypingId(null), []);
+
+  return { pendingId, searching, error, retryIn, typingId, finishTyping, locked: pendingId !== null, send, retry, stop };
 }
