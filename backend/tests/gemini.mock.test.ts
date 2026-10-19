@@ -191,6 +191,27 @@ async function main() {
     }
   });
 
+  await t("sem GEMINI_THINKING_LEVEL: modelo gemini-3.x usa thinkingLevel=low; GEMINI_THINKING_LEVEL=default não envia", async () => {
+    process.env.GEMINI_THINKING_LEVEL = "";
+    process.env.GEMINI_MODEL = "gemini-3.8-flash";
+    try {
+      queue.push(ok("a"));
+      await generate(input);
+      assert.strictEqual(seen[0].body.generationConfig.thinkingConfig?.thinkingLevel, "low");
+      process.env.GEMINI_THINKING_LEVEL = "default";
+      queue.push(ok("b"));
+      await generate(input);
+      assert.strictEqual(seen[1].body.generationConfig.thinkingConfig, undefined);
+      process.env.GEMINI_MODEL = "gemini-2.5-flash";
+      process.env.GEMINI_THINKING_LEVEL = "";
+      queue.push(ok("c"));
+      await generate(input);
+      assert.strictEqual(seen[2].body.generationConfig.thinkingConfig, undefined, "modelos não-3.x ficam sem nível");
+    } finally {
+      process.env.GEMINI_MODEL = "gemini-test";
+    }
+  });
+
   await t("400 com thinkingConfig → repete sem thinkingConfig", async () => {
     queue.push({ status: 400, body: { error: { message: "thinking level not supported", status: "INVALID_ARGUMENT" } } });
     queue.push(ok("sem thinking"));

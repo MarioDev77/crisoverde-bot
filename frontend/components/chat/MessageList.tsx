@@ -81,6 +81,7 @@ export function MessageList({ messages, busy, searching, error, retryIn, locked,
         {error && (
           <div className="flex flex-col items-center gap-2 text-center" role="alert">
             <p className="text-sm text-criso-danger">⚠️ {error.message}</p>
+            {error.code && <p className="text-[11px] text-criso-faint">código: {error.code}</p>}
             {error.retryable && (
               <button
                 onClick={onRetry}

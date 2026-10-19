@@ -5,9 +5,9 @@
  * já existe (e é o que fica salvo/enviado no histórico) e a tela vai revelando um pedaço por vez.
  */
 
-/** Caracteres por segundo: base confortável, mas respostas longas aceleram para terminar em ~6s. */
+/** Caracteres por segundo: ágil, e respostas longas aceleram para a escrita durar no máximo ~3,5s. */
 export function typingSpeed(totalChars: number): number {
-  return Math.min(600, Math.max(70, totalChars / 6));
+  return Math.min(800, Math.max(100, totalChars / 3.5));
 }
 
 /** Quantos caracteres já devem aparecer após `elapsedMs`, sem cortar palavras no meio nem emojis ao meio. */

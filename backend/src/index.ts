@@ -112,6 +112,7 @@ app.use(cors({
   },
   credentials: true, // necessário para o navegador enviar/receber o cookie de sessão
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+  maxAge: 86400, // o navegador guarda a resposta do preflight (OPTIONS) e não pergunta de novo a cada mensagem
   allowedHeaders: ["Content-Type", "Authorization", "x-admin-token"],
 }));
 

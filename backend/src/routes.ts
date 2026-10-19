@@ -313,6 +313,7 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
     msgLength: cleanMessage.length,
   });
 
+  const tStart = Date.now();
   try {
     const memory = await getMemory(sid);
     // Mensagem com padrão de injeção detectado NÃO alimenta a memória.
@@ -322,11 +323,13 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
 
     // Só turnos "assistant" assinados por este servidor para ESTE usuário entram no contexto.
     const trustedHistory = filterTrustedHistory(history, sid) as ChatMessage[];
+    const tAi = Date.now();
     const { reply, sources } = await getReply(promptMessage, trustedHistory, updatedMemory, attachmentParts);
+    const aiMs = Date.now() - tAi;
 
     // A mensagem só entra na cota diária depois que a IA respondeu: falhas do provedor
     // (429/503) e cliques em "Tentar de novo" não gastam as mensagens do dia da pessoa.
-    await logChatEvent(sid);
+    void logChatEvent(sid); // não bloqueia a resposta (já trata o próprio erro)
 
     let savedConversationId: string | undefined;
     try {
@@ -345,6 +348,12 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
       ...(sources && sources.length ? { sources } : {}),
     };
 
+    logger.info("Chat concluído", {
+      userId: sid,
+      prepMs: tAi - tStart, // banco + busca na web, antes de chamar a IA
+      aiMs, //                  getReply (busca na web, se houver, + Gemini)
+      totalMs: Date.now() - tStart,
+    });
     return res.status(200).json(response);
   } catch (error: unknown) {
     if (error instanceof AIProviderError) {
@@ -365,7 +374,7 @@ router.post("/chat", requireAuth, injectionGuard, async (req: Request, res: Resp
             // Cota DIÁRIA do provedor esgotada: esperar alguns segundos não adianta.
             const retryAfterSeconds = error.retryAfterSeconds ?? 3600;
             const err: ErrorResponse = {
-              error: "A CRISO.AI atingiu o limite de uso de hoje 🌿 Volte mais tarde para continuar.",
+              error: "A cota diária da IA acabou por hoje 🌿 Tenta de novo mais tarde.",
               code: "AI_QUOTA_DAILY",
               timestamp: now,
               retryAfterSeconds,

@@ -26,6 +26,8 @@ export type ChatMode = "auto" | "developer" | "teacher" | "sustainability";
 export interface ChatError {
   convId: string;
   message: string;
+  /** Código do erro vindo do servidor (ex.: DAILY_LIMIT, AI_QUOTA_DAILY, RATE_LIMITED): ajuda a saber a causa pelo print. */
+  code?: string;
   /** Mostra "Tentar de novo" (falhas temporárias: rede, 5xx, 429 de instabilidade, resposta interrompida). */
   retryable: boolean;
 }
@@ -106,7 +108,7 @@ export function useChat(store: ConversationsStore, searchEnabled: boolean) {
         } else if (err instanceof ApiError) {
           // 429 por limite DIÁRIO e erros 4xx (mensagem inválida, bloqueio) não adiantam repetir.
           const retryable = err.code !== "DAILY_LIMIT" && err.code !== "AI_QUOTA_DAILY" && (err.status === 429 || err.status >= 500);
-          setError({ convId, message: err.message, retryable });
+          setError({ convId, message: err.message, code: err.code, retryable });
           if (retryable && err.retryAfterSeconds) setRetryIn(Math.min(err.retryAfterSeconds, 120));
         } else {
           setError({ convId, message: "Erro de conexão. Tente novamente.", retryable: true });

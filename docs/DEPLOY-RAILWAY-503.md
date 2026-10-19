@@ -4,7 +4,7 @@ O frontend não consegue corrigir um HTTP 503 emitido pelo backend. A rota `/api
 
 1. Abra o serviço **backend** e consulte **Deployments → Logs** no momento do erro. Procure por `Erro ao chamar Gemini`, `timeout`, `unavailable`, `429`, `GEMINI_API_KEY` e `modelo`.
 2. Em **Variables**, confirme `GEMINI_API_KEY` (somente no backend) e configure `GEMINI_MODEL` com um identificador que apareça disponível no Google AI Studio para a mesma chave. O exemplo deste pacote usa `gemini-3.8-flash` com `GEMINI_THINKING_LEVEL=low`; se a sua conta não o disponibilizar, escolha um modelo Flash disponível.
-3. Deixe `GEMINI_THINKING_LEVEL` vazio para evitar enviar configuração de raciocínio incompatível com modelos que não a suportam.
+3. Use `GEMINI_THINKING_LEVEL=low` (ou deixe vazio: nos modelos `gemini-3.x` o servidor já usa `low`). No `gemini-3.8-flash` o padrão do Google é `medium`, mais lento; `minimal` NÃO é aceito nesse modelo. Para voltar ao padrão do Google, use `GEMINI_THINKING_LEVEL=default`. Se um modelo recusar o nível (HTTP 400), o servidor repete sem ele.
 4. Use `GEMINI_TIMEOUT_MS=20000` e `GEMINI_MAX_OUTPUT_TOKENS=1536` como ponto de partida (12000 é curto demais para o Gemini 3.x com o prompt do projeto e causava 503 por timeout). Se o modelo escolhido precisar de mais tempo, aumente o timeout gradualmente.
 5. Opcionalmente configure `GEMINI_FALLBACK_MODEL` para outro modelo realmente disponível. Não use o mesmo identificador do modelo principal.
 6. Após redeploy, abra `https://SEU-BACKEND/api/health`. O endpoint deve retornar JSON com `status: ok` e o modelo configurado. Isso confirma que o servidor responde, mas não garante que a chamada de geração tenha sucesso.

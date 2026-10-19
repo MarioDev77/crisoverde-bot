@@ -28,6 +28,8 @@ export type ThinkingLevel = "minimal" | "low" | "medium" | "high";
 const THINKING_LEVELS: ThinkingLevel[] = ["minimal", "low", "medium", "high"];
 
 export interface GeminiConfig {
+  /** true quando GEMINI_THINKING_LEVEL=default: não envia nível e deixa o padrão do modelo (no 3.8 Flash é "medium"). */
+  thinkingDefault: boolean;
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -53,6 +55,7 @@ export function getGeminiConfig(): GeminiConfig {
     maxRpm: envInt("GEMINI_MAX_RPM", 0, 0, 10000),
     temperature: envFloat("GEMINI_TEMPERATURE", 0, 2),
     thinkingLevel: (THINKING_LEVELS as string[]).includes(level) ? (level as ThinkingLevel) : undefined,
+    thinkingDefault: level === "default",
   };
 }
 
@@ -315,7 +318,10 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
   const models = [cfg.model, ...(cfg.fallbackModel && cfg.fallbackModel !== cfg.model ? [cfg.fallbackModel] : [])];
 
   for (const model of models) {
-    let thinkingLevel = cfg.thinkingLevel;
+    // Sem GEMINI_THINKING_LEVEL, modelos Gemini 3.x usam "low": o padrão do 3.8 Flash é "medium", mais lento e caro,
+    // e para chat "low" basta (documentação oficial: "minimiza latência e custo"). Use GEMINI_THINKING_LEVEL=default para voltar ao padrão.
+    let thinkingLevel: ThinkingLevel | undefined =
+      cfg.thinkingLevel ?? (!cfg.thinkingDefault && /^gemini-3/i.test(model) ? "low" : undefined);
     let maxOutputTokens: number | undefined;
     let transientTries = 0;
     let emptyRetried = false;
@@ -336,7 +342,7 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
 
         if (out.text || out.blocked) {
           const result: GenerateResult = { ...out, latencyMs: Date.now() - startedAt, attempts };
-          logger.debug("Gemini respondeu", {
+          logger.info("Gemini respondeu", {
             model, attempts, latencyMs: result.latencyMs, truncated: out.truncated, blocked: out.blocked, usage: out.usage,
           });
           return result;

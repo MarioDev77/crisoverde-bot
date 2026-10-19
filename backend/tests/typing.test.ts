@@ -12,10 +12,10 @@ function t(name: string, fn: () => void) {
   catch (e) { results.push({ name, pass: false, err: String((e as Error)?.message ?? e) }); }
 }
 
-t("velocidade: mínimo 70/s e respostas longas terminam em ~6s (teto 600/s)", () => {
-  assert.strictEqual(typingSpeed(10), 70);
-  assert.strictEqual(typingSpeed(1800), 300);
-  assert.strictEqual(typingSpeed(100000), 600);
+t("velocidade: mínimo 100/s e respostas longas terminam em ~3,5s (teto 800/s)", () => {
+  assert.strictEqual(typingSpeed(10), 100);
+  assert.strictEqual(typingSpeed(1400), 400);
+  assert.strictEqual(typingSpeed(100000), 800);
 });
 
 t("revealLength: começa em 0, termina no total e nunca passa dele", () => {
