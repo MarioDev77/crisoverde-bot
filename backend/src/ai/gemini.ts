@@ -33,7 +33,8 @@ export interface GeminiConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
-  fallbackModel?: string;
+  /** Modelos reserva, na ordem de preferência (cada modelo tem cota e capacidade próprias). */
+  fallbackModels: string[];
   maxOutputTokens: number;
   timeoutMs: number;
   /** Teto de chamadas por minuto ao Gemini neste servidor (0 = sem controle). Evita estourar a cota (429). */
@@ -42,14 +43,29 @@ export interface GeminiConfig {
   thinkingLevel?: ThinkingLevel;
 }
 
+/**
+ * Modelos reserva padrão (GA, listados na página oficial de modelos/deprecações do Gemini API).
+ * Usados quando GEMINI_FALLBACK_MODEL está vazio ou ausente — assim o chat não cai só porque o
+ * modelo principal está com alta demanda (503) ou sem cota (429). Para DESLIGAR: GEMINI_FALLBACK_MODEL=none.
+ */
+export const DEFAULT_FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
+
+export function parseFallbackModels(raw: string | undefined, primary: string): string[] {
+  const v = (raw ?? "").trim();
+  if (/^(none|off|false|0|-)$/i.test(v)) return [];
+  const list = v ? v.split(",") : DEFAULT_FALLBACK_MODELS;
+  return [...new Set(list.map((m) => m.trim()).filter((m) => m && m !== primary))];
+}
+
 /** Lê a configuração no momento da chamada (permite testes e troca de modelo sem rebuild). */
 export function getGeminiConfig(): GeminiConfig {
   const level = (process.env.GEMINI_THINKING_LEVEL || "").trim().toLowerCase();
+  const model = (process.env.GEMINI_MODEL || "gemini-3.8-flash").trim();
   return {
     apiKey: (process.env.GEMINI_API_KEY || "").trim(),
     baseUrl: (process.env.GEMINI_API_BASE_URL || "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, ""),
-    model: (process.env.GEMINI_MODEL || "gemini-3.8-flash").trim(),
-    fallbackModel: (process.env.GEMINI_FALLBACK_MODEL || "").trim() || undefined,
+    model,
+    fallbackModels: parseFallbackModels(process.env.GEMINI_FALLBACK_MODEL, model),
     maxOutputTokens: envInt("GEMINI_MAX_OUTPUT_TOKENS", 1536, 64, 65536),
     timeoutMs: envInt("GEMINI_TIMEOUT_MS", 20000, 2000, 120000),
     maxRpm: envInt("GEMINI_MAX_RPM", 0, 0, 10000),
@@ -266,9 +282,39 @@ const callTimes: number[] = [];
 const RPM_WINDOW_MS = 60_000;
 const RPM_MAX_WAIT_MS = 8_000;
 
+/**
+ * "Disjuntor" por modelo: depois que um modelo falha por instabilidade (503/timeout) ou cota (429),
+ * as próximas mensagens já vão direto ao modelo reserva durante alguns segundos, em vez de cada
+ * pessoa esperar as tentativas no modelo doente. Passado o tempo, o principal volta a ser o primeiro.
+ */
+const modelCooldown = new Map<string, number>();
+const COOLDOWN_UNAVAILABLE_MS = 30_000;
+const COOLDOWN_DAILY_MS = 10 * 60_000;
+const COOLDOWN_NOT_FOUND_MS = 10 * 60_000;
+
+const isCoolingDown = (model: string, now = Date.now()) => (modelCooldown.get(model) ?? 0) > now;
+const jitter = (ms: number) => Math.round(ms * (0.75 + Math.random() * 0.5));
+
+function markCooldown(model: string, e: AIProviderError): void {
+  let ms = 0;
+  if (e.kind === "rate_limit" && e.status) {
+    // (sem status = controle LOCAL de ritmo, que vale para todos os modelos: não esfria um modelo específico)
+    ms = e.daily ? COOLDOWN_DAILY_MS : Math.min(Math.max((e.retryAfterSeconds ?? 30) * 1000, 10_000), 60_000);
+  } else if (e.kind === "unavailable" || e.kind === "timeout") {
+    ms = COOLDOWN_UNAVAILABLE_MS;
+  } else if (e.kind === "unknown" && e.status === 404) {
+    ms = COOLDOWN_NOT_FOUND_MS; // modelo inexistente para esta chave: não insistir
+  }
+  if (ms > 0) {
+    modelCooldown.set(model, Date.now() + ms);
+    logger.warn("Gemini: modelo em pausa temporária — próximas mensagens usam o reserva", { model, kind: e.kind, status: e.status, seconds: Math.round(ms / 1000) });
+  }
+}
+
 export function _resetGeminiState(): void {
   rejectedThinking.clear();
   callTimes.length = 0;
+  modelCooldown.clear();
 }
 
 /**
@@ -295,14 +341,22 @@ async function reserveCallSlot(maxRpm: number, budgetMs: number): Promise<void> 
 
 /**
  * Estratégia:
- *  1. Modelo principal, até 3 tentativas para falhas TRANSITÓRIAS (rede, 5xx, timeout).
- *  2. 429 não é repetido no mesmo modelo (a cota não volta em milissegundos): vai direto ao
- *     GEMINI_FALLBACK_MODEL, se configurado.
- *  3. 400 com thinkingConfig → repete uma vez sem thinkingConfig (o modelo pode não aceitar o nível).
- *  4. Resposta vazia por MAX_TOKENS pode ser repetida uma vez com configuração de raciocínio reduzida, quando suportada pelo modelo.
- *  5. Todo o processo respeita um prazo total de 2 × GEMINI_TIMEOUT_MS (o dobro de cada, se houver anexo de imagem/PDF).
- *  6. 429 por cota POR MINUTO com espera curta (≤ 15s, se couber no prazo): espera e repete uma vez. Cota DIÁRIA: não repete.
- *  7. GEMINI_MAX_RPM (opcional): segura as chamadas no servidor para não estourar a cota por minuto.
+ *  1. Modelo principal; falhas TRANSITÓRIAS (rede, 5xx) são repetidas com pausa curta e variação aleatória
+ *     (3 tentativas se não houver reserva; 2 se houver, para não segurar a pessoa num modelo sobrecarregado).
+ *  2. 429 não é repetido no mesmo modelo quando há reserva (a cota não volta em milissegundos): vai ao
+ *     próximo modelo. Timeout também (repetir só gasta o prazo).
+ *  3. Modelos reserva: GEMINI_FALLBACK_MODEL (lista separada por vírgula). Vazio = padrão do projeto
+ *     (DEFAULT_FALLBACK_MODELS); "none" = sem reserva.
+ *  4. Disjuntor: modelo que falhou por 503/429/timeout fica em pausa por alguns segundos e as próximas
+ *     mensagens já começam pelo reserva (sem latência extra).
+ *  5. 400 com thinkingConfig → repete uma vez sem thinkingConfig (o modelo pode não aceitar o nível).
+ *  6. Resposta vazia por MAX_TOKENS é repetida uma vez com raciocínio reduzido e mais tokens.
+ *  7. Prazo total de 2 × GEMINI_TIMEOUT_MS (o dobro de cada, se houver anexo de imagem/PDF).
+ *  8. 429 por cota POR MINUTO com espera curta (≤ 15s) e SEM reserva disponível: espera e repete uma vez.
+ *     Cota DIÁRIA: não repete.
+ *  9. GEMINI_MAX_RPM (opcional): segura as chamadas no servidor para não estourar a cota por minuto.
+ * 10. Se o reserva falhar por motivo "menos útil" (ex.: 404), o erro devolvido é o do problema real
+ *     (503/429 do principal), não o do reserva.
  */
 export async function generate(input: GenerateInput): Promise<GenerateResult> {
   const cfg = getGeminiConfig();
@@ -316,10 +370,23 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
   let rateRetried = false;
   let attempts = 0;
   let lastError: AIProviderError | undefined;
+  const modelErrors: AIProviderError[] = [];
 
-  const models = [cfg.model, ...(cfg.fallbackModel && cfg.fallbackModel !== cfg.model ? [cfg.fallbackModel] : [])];
+  // Modelos que NÃO estão em pausa vêm primeiro (mantendo a ordem de preferência); os em pausa ficam por último.
+  const all = [cfg.model, ...cfg.fallbackModels];
+  const nowTs = Date.now();
+  const models = [...all.filter((m) => !isCoolingDown(m, nowTs)), ...all.filter((m) => isCoolingDown(m, nowTs))];
 
-  for (const model of models) {
+  for (let mi = 0; mi < models.length; mi++) {
+    const model = models[mi];
+    // Há outro modelo saudável depois deste? (os em pausa estão no fim da lista)
+    const hasAlternative = models.slice(mi + 1).some((m) => !isCoolingDown(m));
+    const maxTransientRetries = hasAlternative ? 1 : BACKOFF_MS.length;
+
+    if (mi > 0) {
+      logger.warn("Gemini: usando modelo reserva", { from: models[mi - 1], to: model, reason: lastError?.kind, status: lastError?.status });
+    }
+
     // Sem GEMINI_THINKING_LEVEL, modelos Gemini 3.x usam "low": o padrão do 3.8 Flash é "medium", mais lento e caro,
     // e para chat "low" basta (documentação oficial: "minimiza latência e custo"). Use GEMINI_THINKING_LEVEL=default para voltar ao padrão.
     let thinkingLevel: ThinkingLevel | undefined =
@@ -361,6 +428,7 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
           continue;
         }
         lastError = new AIProviderError("empty", "Gemini retornou resposta vazia");
+        modelErrors.push(lastError);
         break; // tenta próximo modelo, se houver
       } catch (err) {
         const e = err instanceof AIProviderError ? err : new AIProviderError("unknown", String((err as Error)?.message ?? err));
@@ -372,26 +440,33 @@ export async function generate(input: GenerateInput): Promise<GenerateResult> {
           thinkingLevel = undefined;
           continue;
         }
-        if ((e.kind === "unavailable" || e.kind === "timeout") && transientTries < BACKOFF_MS.length) {
-          const wait = BACKOFF_MS[transientTries++];
+        // Timeout com reserva disponível: repetir no mesmo modelo só gasta o prazo — vai direto ao reserva.
+        const retryable = e.kind === "unavailable" || (e.kind === "timeout" && !hasAlternative);
+        if (retryable && transientTries < maxTransientRetries) {
+          const wait = jitter(BACKOFF_MS[transientTries++]);
           logger.warn("Falha transitória no Gemini — tentando de novo", { model, kind: e.kind, wait, error: e.message });
           await sleep(wait);
           continue;
         }
-        if (e.kind === "rate_limit" && !e.daily && !rateRetried && e.retryAfterSeconds && e.retryAfterSeconds <= RATE_RETRY_MAX_WAIT_S && deadline - Date.now() > e.retryAfterSeconds * 1000 + 1700) {
-          // Cota por MINUTO com espera curta: vale esperar e repetir uma vez (cota diária não volta em segundos).
+        if (e.kind === "rate_limit" && !hasAlternative && !e.daily && !rateRetried && e.retryAfterSeconds && e.retryAfterSeconds <= RATE_RETRY_MAX_WAIT_S && deadline - Date.now() > e.retryAfterSeconds * 1000 + 1700) {
+          // Cota por MINUTO com espera curta e SEM reserva: vale esperar e repetir uma vez (cota diária não volta em segundos).
           rateRetried = true;
           logger.warn("Gemini 429 por minuto — esperando e repetindo uma vez", { model, wait: e.retryAfterSeconds, quotaId: e.quotaId });
           await sleep(e.retryAfterSeconds * 1000 + 200);
           continue;
         }
-        if (e.kind === "auth" || e.kind === "bad_request") throw e; // fallback não resolve chave/requisição inválida
-        break; // rate_limit, esgotou retries ou unknown → tenta próximo modelo
+        if (e.kind === "auth") throw e; // a chave vale para todos os modelos
+        if (e.kind === "bad_request" && mi === 0) throw e; // requisição inválida: reserva não resolve
+        modelErrors.push(e);
+        markCooldown(model, e);
+        break; // rate_limit, esgotou retries, 404 ou unknown → tenta próximo modelo
       }
     }
   }
 
-  throw lastError ?? new AIProviderError("unknown", "Falha desconhecida ao chamar Gemini");
+  // Devolve o erro do problema REAL (instabilidade/cota), não o de um reserva que nem existe na conta.
+  const meaningful = [...modelErrors].reverse().find((e) => e.kind === "unavailable" || e.kind === "timeout" || e.kind === "rate_limit");
+  throw meaningful ?? lastError ?? new AIProviderError("unknown", "Falha desconhecida ao chamar Gemini");
 }
 
 /** Verificação NÃO fatal no boot: confirma que o modelo configurado existe para esta chave. */

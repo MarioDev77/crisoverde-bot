@@ -10,7 +10,7 @@ import assert from "assert";
 
 process.env.GEMINI_API_KEY = "test-key-123";
 process.env.GEMINI_MODEL = "gemini-test";
-process.env.GEMINI_FALLBACK_MODEL = "";
+process.env.GEMINI_FALLBACK_MODEL = "none";
 process.env.GEMINI_THINKING_LEVEL = "low";
 process.env.GEMINI_MAX_OUTPUT_TOKENS = "2048";
 process.env.GEMINI_TIMEOUT_MS = "2000";
@@ -46,7 +46,7 @@ async function t(name: string, fn: () => Promise<void> | void) {
   queue.length = 0;
   seen.length = 0;
   resetState();
-  process.env.GEMINI_FALLBACK_MODEL = "";
+  process.env.GEMINI_FALLBACK_MODEL = "none";
   process.env.GEMINI_THINKING_LEVEL = "low";
   try {
     await fn();
@@ -150,6 +150,58 @@ async function main() {
     assert.strictEqual(r.text, "via reserva");
     assert.strictEqual(r.model, "gemini-reserva");
     assert.ok(seen[1].url.includes("/models/gemini-reserva:"));
+  });
+
+  const e503 = { status: 503, body: { error: { message: "high demand", status: "UNAVAILABLE" } } };
+
+  await t("503 persistente no principal + reserva configurado → responde pelo reserva (sem esgotar 3 tentativas)", async () => {
+    process.env.GEMINI_FALLBACK_MODEL = "gemini-reserva";
+    queue.push(e503); // principal, 1ª
+    queue.push(e503); // principal, única repetição (há reserva)
+    queue.push(ok("via reserva"));
+    const r = await generate(input);
+    assert.strictEqual(r.text, "via reserva");
+    assert.strictEqual(r.model, "gemini-reserva");
+    assert.strictEqual(seen.length, 3);
+    assert.ok(seen[2].url.includes("/models/gemini-reserva:"));
+  });
+
+  await t("disjuntor: após 503 no principal, a próxima chamada já começa pelo reserva", async () => {
+    process.env.GEMINI_FALLBACK_MODEL = "gemini-reserva";
+    queue.push(e503, e503, ok("primeira"), ok("segunda"));
+    await generate(input);
+    const r = await generate(input);
+    assert.strictEqual(r.text, "segunda");
+    assert.ok(seen[3].url.includes("/models/gemini-reserva:"), "2ª chamada deve ir direto ao reserva");
+    assert.strictEqual(r.attempts, 1);
+  });
+
+  await t("reserva inexistente (404) não mascara o 503 do principal", async () => {
+    process.env.GEMINI_FALLBACK_MODEL = "gemini-que-nao-existe";
+    queue.push(e503, e503);
+    queue.push({ status: 404, body: { error: { message: "model not found", status: "NOT_FOUND" } } });
+    await assert.rejects(generate(input), (e: any) => e.kind === "unavailable" && e.status === 503);
+  });
+
+  await t("GEMINI_FALLBACK_MODEL vazio → usa a cadeia padrão; 'none' desliga", async () => {
+    const { getGeminiConfig, DEFAULT_FALLBACK_MODELS } = await import("../src/ai/gemini");
+    process.env.GEMINI_FALLBACK_MODEL = "";
+    assert.deepStrictEqual(getGeminiConfig().fallbackModels, DEFAULT_FALLBACK_MODELS);
+    delete process.env.GEMINI_FALLBACK_MODEL;
+    assert.deepStrictEqual(getGeminiConfig().fallbackModels, DEFAULT_FALLBACK_MODELS);
+    process.env.GEMINI_FALLBACK_MODEL = "none";
+    assert.deepStrictEqual(getGeminiConfig().fallbackModels, []);
+    process.env.GEMINI_FALLBACK_MODEL = "a, b ,gemini-test";
+    assert.deepStrictEqual(getGeminiConfig().fallbackModels, ["a", "b"], "lista por vírgula; ignora o próprio principal");
+  });
+
+  await t("lista de reservas: se o 1º reserva também falha, tenta o 2º", async () => {
+    process.env.GEMINI_FALLBACK_MODEL = "reserva-1,reserva-2";
+    queue.push(e503, e503); // principal
+    queue.push({ status: 429, body: { error: { message: "quota", status: "RESOURCE_EXHAUSTED" } } }); // reserva-1
+    queue.push(ok("via reserva-2"));
+    const r = await generate(input);
+    assert.strictEqual(r.model, "reserva-2");
   });
 
   await t("429 por minuto com espera curta (1s) → espera e repete uma vez no mesmo modelo", async () => {

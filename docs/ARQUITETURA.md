@@ -48,7 +48,7 @@ não tinha acesso a elas). **Não verificado:** qualquer chamada ao Gemini real,
 - `rejectUnauthorized: false` no Postgres (exigência do Railway) e limite por IP continuam como estavam.
 - A conta consome a cota diária mesmo se a chamada à IA falhar depois (o evento é gravado antes da resposta).
 - `injectionGuard` e a checagem de cota liberam a requisição se o banco falhar (fail-open, por disponibilidade).
-- Sem fallback para outro **provedor**: só outro modelo Gemini (`GEMINI_FALLBACK_MODEL`). Escolha deliberada, pois o plano só o exige se configurado.
+- Sem fallback para outro **provedor**: só outros modelos Gemini (`GEMINI_FALLBACK_MODEL`; vazio = padrão `gemini-3.6-flash`, `gemini-3.5-flash-lite`; `none` desliga), com disjuntor por modelo.
 - Qualquer pessoa pode criar conta: defina `CHAT_DAILY_LIMIT_GLOBAL` para ter um teto real de gasto.
 - Conversa só no navegador; filtros de dado sensível são heurísticos.
 

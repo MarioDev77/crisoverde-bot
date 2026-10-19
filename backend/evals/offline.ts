@@ -65,7 +65,7 @@ export async function runOffline(): Promise<Metric[]> {
   const SECRET_KEY = "chave-de-teste-NAO-DEVE-VAZAR-123";
   process.env.GEMINI_API_KEY = SECRET_KEY;
   process.env.GEMINI_MODEL = "gemini-eval";
-  process.env.GEMINI_FALLBACK_MODEL = "";
+  process.env.GEMINI_FALLBACK_MODEL = "none";
   process.env.GEMINI_THINKING_LEVEL = "low";
   process.env.GEMINI_MAX_OUTPUT_TOKENS = "2048";
   process.env.GEMINI_TIMEOUT_MS = "2000";
@@ -167,7 +167,7 @@ export async function runOffline(): Promise<Metric[]> {
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", () => r()));
   process.env.GEMINI_API_BASE_URL = `http://127.0.0.1:${(server.address() as any).port}/v1beta`;
   const input = { systemInstruction: "SYS", turns: [{ role: "user" as const, text: "oi" }] };
-  const reset = () => { queue.length = 0; seen.length = 0; _resetGeminiState(); process.env.GEMINI_FALLBACK_MODEL = ""; process.env.GEMINI_THINKING_LEVEL = "low"; };
+  const reset = () => { queue.length = 0; seen.length = 0; _resetGeminiState(); process.env.GEMINI_FALLBACK_MODEL = "none"; process.env.GEMINI_THINKING_LEVEL = "low"; };
 
   async function scenario(
     name: string,
