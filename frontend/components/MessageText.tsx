@@ -49,7 +49,7 @@ function BlockView({ block }: { block: Block }) {
       );
     case "quote":
       return (
-        <blockquote className="border-l-2 border-forest/30 pl-3 text-ink/70">
+        <blockquote className="border-l-2 border-criso-accent/40 pl-3 text-criso-muted">
           {block.lines.map((l, i) => <div key={i}><Inlines items={l} /></div>)}
         </blockquote>
       );
@@ -78,7 +78,7 @@ function Inlines({ items }: { items: Inline[] }) {
             return <em key={i}>{it.v}</em>;
           case "code":
             return (
-              <code key={i} className="rounded bg-paper px-1 py-0.5 font-mono text-[0.85em] text-ink">
+              <code key={i} className="rounded bg-criso-raised px-1 py-0.5 font-mono text-[0.85em] text-criso-text">
                 {it.v}
               </code>
             );
@@ -89,7 +89,7 @@ function Inlines({ items }: { items: Inline[] }) {
                 href={it.href}
                 target="_blank"
                 rel="noopener noreferrer nofollow"
-                className="break-all text-forest underline underline-offset-2 hover:text-forest-dark"
+                className="break-all text-criso-accent underline underline-offset-2 hover:text-criso-accent-dark"
               >
                 {it.v}
               </a>
@@ -98,7 +98,7 @@ function Inlines({ items }: { items: Inline[] }) {
             return (
               <span
                 key={i}
-                className="inline-flex items-center gap-1 rounded-full bg-gold/15 px-2 py-0.5 text-[0.85em] font-medium text-gold-dark"
+                className="inline-flex items-center gap-1 rounded-full bg-amber-400/15 px-2 py-0.5 text-[0.85em] font-medium text-amber-300"
               >
                 🪙 {it.v}
               </span>
@@ -125,8 +125,8 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-ink/10 bg-ink text-paper">
-      <div className="flex items-center justify-between gap-2 bg-white/5 px-3 py-1.5 text-xs text-paper/70">
+    <div className="overflow-hidden rounded-xl border border-criso-line bg-criso-bg text-criso-text">
+      <div className="flex items-center justify-between gap-2 bg-white/5 px-3 py-1.5 text-xs text-criso-muted">
         <span className="font-mono">{lang || "código"}</span>
         <button
           onClick={copy}

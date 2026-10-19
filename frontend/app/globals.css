@@ -60,3 +60,72 @@
     transparent 34px
   );
 }
+
+/* ─── Tema escuro do chat (redesign) ───────────────────────────────────────
+   Tudo escopado em `.criso-theme`: login, cadastro, home e painel admin
+   continuam com o visual claro, sem nenhuma alteração. */
+.criso-theme {
+  color-scheme: dark;
+  background: #040b09;
+  color: #e8f3ee;
+}
+.criso-theme h1,
+.criso-theme h2,
+.criso-theme h3,
+.criso-theme h4 {
+  font-family: var(--font-body), system-ui, sans-serif;
+}
+.criso-theme ::selection {
+  background: rgba(34, 211, 107, 0.3);
+}
+.criso-theme :focus-visible {
+  outline: 2px solid #22d36b;
+  outline-offset: 2px;
+}
+.criso-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #143327 transparent;
+}
+/* Classes compartilhadas (usadas pelo MemoryPanel) redefinidas só dentro do chat */
+.criso-theme .card {
+  background: #0a1a15;
+  border: 1px solid #143327;
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.8);
+}
+.criso-theme .field-label {
+  color: #8aa597;
+}
+.criso-theme .field-input {
+  background: #0f241c;
+  border-color: #143327;
+  color: #e8f3ee;
+}
+.criso-theme .field-input::placeholder {
+  color: #6b8a7a;
+}
+.criso-theme .field-input:focus {
+  border-color: #22d36b;
+  box-shadow: 0 0 0 2px rgba(34, 211, 107, 0.2);
+}
+.criso-theme .btn-primary {
+  background: #22d36b;
+  color: #04130c;
+}
+.criso-theme .btn-primary:hover {
+  background: #17a853;
+}
+.criso-theme .btn-secondary {
+  background: transparent;
+  border-color: #143327;
+  color: #e8f3ee;
+}
+.criso-theme .btn-secondary:hover {
+  border-color: #22d36b;
+  color: #22d36b;
+}
+@media (prefers-reduced-motion: reduce) {
+  .criso-theme * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -7,7 +7,7 @@ import type { Config } from "tailwindcss";
 // gerada por IA.
 
 const config: Config = {
-  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}"],
+  content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./hooks/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
@@ -26,6 +26,22 @@ const config: Config = {
         rust: "#B3492F",        // usado só para erro/alerta, com moderação
         line: "#D9DFD2",        // bordas e divisores
         surface: "#FFFFFF",
+        // Tema escuro da tela /chat (redesign). Usado só dentro de `.criso-theme`.
+        criso: {
+          bg: "#040b09",
+          panel: "#07130f",
+          surface: "#0a1a15",
+          raised: "#0f241c",
+          line: "#143327",
+          text: "#e8f3ee",
+          muted: "#8aa597",
+          faint: "#6b8a7a",
+          accent: "#22d36b",
+          "accent-dark": "#17a853",
+          ink: "#04130c", // texto sobre fundo verde
+          cyan: "#2fd1c5",
+          danger: "#f2776b",
+        },
       },
       fontFamily: {
         display: ["var(--font-display)", "serif"],

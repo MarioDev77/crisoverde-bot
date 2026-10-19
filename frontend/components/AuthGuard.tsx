@@ -15,9 +15,12 @@ import { Loader2 } from "lucide-react";
 export function AuthGuard({
   children,
   requireRole,
+  dark = false,
 }: {
   children: React.ReactNode;
   requireRole?: UserRole;
+  /** Tela de carregamento escura (evita piscar branco antes do tema escuro do chat). */
+  dark?: boolean;
 }) {
   const { user, loading } = useAuth();
   const router = useRouter();
@@ -36,8 +39,8 @@ export function AuthGuard({
 
   if (loading || !user || (requireRole && user.role !== requireRole)) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-paper">
-        <Loader2 className="h-6 w-6 animate-spin text-forest" />
+      <div className={`flex min-h-screen items-center justify-center ${dark ? "bg-criso-bg" : "bg-paper"}`}>
+        <Loader2 className={`h-6 w-6 animate-spin ${dark ? "text-criso-accent" : "text-forest"}`} />
       </div>
     );
   }

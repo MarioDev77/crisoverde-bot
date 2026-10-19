@@ -94,3 +94,25 @@ export interface MemoryResponse {
   /** Valores que o backend recusou guardar (dados sensíveis, links, etc.). */
   rejected?: string[];
 }
+
+
+/** Mensagem na tela do chat: o `ChatMessage` do contrato da API + id local e fontes. */
+export interface UiMessage extends ChatMessage {
+  id: string;
+  sources?: SourceRef[];
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messages: UiMessage[];
+}
+
+/** Resposta de GET /api/health (só os campos que a interface usa). */
+export interface HealthInfo {
+  status?: string;
+  engine?: string;
+  search?: string;
+}

@@ -130,7 +130,7 @@ export function MemoryPanel({ open, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 sm:items-center sm:p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
@@ -143,7 +143,7 @@ export function MemoryPanel({ open, onClose }: Props) {
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="memory-title" className="text-lg font-semibold">Sua memória</h2>
-            <p className="mt-1 text-xs leading-relaxed text-ink/55">
+            <p className="mt-1 text-xs leading-relaxed text-criso-muted">
               A CRISO.AI só guarda o que você conta sobre você. Metas expiram em{" "}
               {memory?.retencaoDias.metas ?? 90} dias; interesses e ocupação, em 1 ano. Ela não guarda o
               conteúdo das conversas.
@@ -152,23 +152,23 @@ export function MemoryPanel({ open, onClose }: Props) {
           <button
             ref={closeRef}
             onClick={onClose}
-            className="rounded-full p-1.5 text-ink/50 hover:bg-paper hover:text-ink"
+            className="rounded-full p-1.5 text-criso-muted hover:bg-criso-raised hover:text-criso-text"
             aria-label="Fechar"
           >
             <X size={18} />
           </button>
         </div>
 
-        {loading && <p className="mt-6 text-sm text-ink/50">Carregando...</p>}
+        {loading && <p className="mt-6 text-sm text-criso-muted">Carregando...</p>}
 
         {error && (
-          <p className="mt-4 text-sm text-rust" role="alert">⚠️ {error}</p>
+          <p className="mt-4 text-sm text-criso-danger" role="alert">⚠️ {error}</p>
         )}
 
         {memory && !loading && (
           <div className="mt-5 space-y-5">
             {isEmpty && (
-              <p className="rounded-xl bg-paper px-4 py-3 text-sm text-ink/60">
+              <p className="rounded-xl bg-criso-raised px-4 py-3 text-sm text-criso-muted">
                 Ainda não há nada guardado. Se você contar seu nome, cidade, interesses ou metas na conversa, eles aparecem aqui.
               </p>
             )}
@@ -216,10 +216,10 @@ export function MemoryPanel({ open, onClose }: Props) {
             />
 
             {memory.idade && (
-              <div className="flex items-center justify-between rounded-xl bg-paper px-4 py-2.5 text-sm">
+              <div className="flex items-center justify-between rounded-xl bg-criso-raised px-4 py-2.5 text-sm">
                 <span>Idade registrada: {memory.idade}</span>
                 <button
-                  className="text-xs text-rust hover:underline"
+                  className="text-xs text-criso-danger hover:underline"
                   onClick={() => void send({ remove: { campos: ["idade"] } })}
                   disabled={saving}
                 >
@@ -229,21 +229,21 @@ export function MemoryPanel({ open, onClose }: Props) {
             )}
 
             {hasOthers && (
-              <p className="rounded-xl bg-paper px-4 py-3 text-xs text-ink/55">
+              <p className="rounded-xl bg-criso-raised px-4 py-3 text-xs text-criso-muted">
                 Há outros registros antigos guardados. Eles saem se você usar “Apagar tudo”.
               </p>
             )}
 
             {notice.length > 0 && (
-              <ul className="space-y-1 text-xs text-rust" role="status">
+              <ul className="space-y-1 text-xs text-criso-danger" role="status">
                 {notice.map((n, i) => <li key={i}>• {n}</li>)}
               </ul>
             )}
 
-            <div className="border-t border-line pt-4">
+            <div className="border-t border-criso-line pt-4">
               {!confirmClear ? (
                 <button
-                  className="inline-flex items-center gap-1.5 text-sm text-rust hover:underline"
+                  className="inline-flex items-center gap-1.5 text-sm text-criso-danger hover:underline"
                   onClick={() => setConfirmClear(true)}
                   disabled={saving || isEmpty}
                 >
@@ -251,11 +251,11 @@ export function MemoryPanel({ open, onClose }: Props) {
                 </button>
               ) : (
                 <div className="flex flex-wrap items-center gap-3 text-sm">
-                  <span className="text-ink/70">Apagar tudo que a CRISO.AI guarda sobre você?</span>
-                  <button className="font-semibold text-rust hover:underline" onClick={clearAll} disabled={saving}>
+                  <span className="text-criso-muted">Apagar tudo que a CRISO.AI guarda sobre você?</span>
+                  <button className="font-semibold text-criso-danger hover:underline" onClick={clearAll} disabled={saving}>
                     Sim, apagar
                   </button>
-                  <button className="text-ink/60 hover:underline" onClick={() => setConfirmClear(false)}>
+                  <button className="text-criso-muted hover:underline" onClick={() => setConfirmClear(false)}>
                     Cancelar
                   </button>
                 </div>
@@ -283,14 +283,14 @@ function ChipList(props: {
     <div>
       <p className="field-label">{title}</p>
       {items.length === 0 ? (
-        <p className="mb-2 text-xs text-ink/45">Nada por aqui.</p>
+        <p className="mb-2 text-xs text-criso-muted">Nada por aqui.</p>
       ) : (
         <ul className="mb-2 flex flex-wrap gap-1.5">
           {items.map((it) => (
-            <li key={it} className="inline-flex items-center gap-1 rounded-full border border-line bg-paper py-1 pl-3 pr-1.5 text-xs">
+            <li key={it} className="inline-flex items-center gap-1 rounded-full border border-criso-line bg-criso-raised py-1 pl-3 pr-1.5 text-xs">
               {it}
               <button
-                className="rounded-full p-0.5 text-ink/45 hover:bg-line hover:text-rust"
+                className="rounded-full p-0.5 text-criso-muted hover:bg-criso-line hover:text-criso-danger"
                 onClick={() => onRemove(it)}
                 disabled={disabled}
                 aria-label={`Remover ${it}`}

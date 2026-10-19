@@ -1,0 +1,144 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, ApiError } from "@/lib/api";
+import { uid } from "@/lib/format";
+import type { ChatResponse, UiMessage } from "@/lib/types";
+import type { ConversationsStore } from "./useConversations";
+
+// Mesma heurística leve usada no backend — aqui só liga o indicador visual
+// "Pesquisando na internet...", nunca decide o que é enviado. Só aparece se /health disser search: "on".
+const SEARCH_HINT_KEYWORDS = [
+  "hoje", "agora", "atual", "notícia", "noticia", "última", "ultima", "recente",
+  "resultado", "placar", "cotação", "cotacao", "dólar", "dolar", "clima",
+  "temperatura", "previsão do tempo", "previsao do tempo", "quem ganhou",
+  "está funcionando", "esta funcionando", "caiu", "fora do ar",
+];
+
+function looksLikeSearch(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return SEARCH_HINT_KEYWORDS.some((kw) => normalized.includes(kw));
+}
+
+export interface ChatError {
+  convId: string;
+  message: string;
+  /** Mostra "Tentar de novo" (falhas temporárias: rede, 5xx, 429 de instabilidade, resposta interrompida). */
+  retryable: boolean;
+}
+
+/**
+ * Envio de mensagens. A lógica é a mesma que existia em app/chat/page.tsx (trava síncrona contra
+ * envio duplo, "tentar de novo" sem duplicar o balão, contagem regressiva, 429 diário sem retry),
+ * agora ligada à conversa ativa e com botão de interromper.
+ */
+export function useChat(store: ConversationsStore, searchEnabled: boolean) {
+  const { active, create, append } = store;
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<ChatError | null>(null);
+  const [retryIn, setRetryIn] = useState(0);
+
+  // Trava síncrona: setState é assíncrono, então dois Enter rápidos poderiam enviar duas vezes.
+  const sendingRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
+
+  // Contagem regressiva do "tentar de novo" (quando o backend informa retryAfterSeconds)
+  useEffect(() => {
+    if (retryIn <= 0) return;
+    const id = setTimeout(() => setRetryIn((v) => v - 1), 1000);
+    return () => clearTimeout(id);
+  }, [retryIn]);
+
+  // Cancela uma requisição em andamento se a página for fechada
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  /** `base` = histórico ANTES da mensagem do usuário (já exibida). Não acrescenta o balão do usuário. */
+  const submit = useCallback(
+    async (convId: string, text: string, base: UiMessage[]) => {
+      if (sendingRef.current) return;
+      sendingRef.current = true;
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      setError(null);
+      setRetryIn(0);
+      setPendingId(convId);
+      setSearching(searchEnabled && looksLikeSearch(text));
+
+      try {
+        const data = await api.post<ChatResponse>(
+          "/chat",
+          {
+            message: text,
+            history: base
+              .slice(-20)
+              .map((m) =>
+                m.role === "assistant"
+                  ? { role: m.role, content: m.content, sig: m.sig }
+                  : { role: m.role, content: m.content }
+              ),
+          },
+          { signal: controller.signal }
+        );
+        append(convId, { id: uid(), role: "assistant", content: data.reply, sources: data.sources, sig: data.sig });
+      } catch (err) {
+        if (controller.signal.aborted) {
+          setError({ convId, message: "Resposta interrompida.", retryable: true });
+        } else if (err instanceof ApiError) {
+          // 429 por limite DIÁRIO e erros 4xx (mensagem inválida, bloqueio) não adiantam repetir.
+          const retryable = err.code !== "DAILY_LIMIT" && (err.status === 429 || err.status >= 500);
+          setError({ convId, message: err.message, retryable });
+          if (retryable && err.retryAfterSeconds) setRetryIn(Math.min(err.retryAfterSeconds, 120));
+        } else {
+          setError({ convId, message: "Erro de conexão. Tente novamente.", retryable: true });
+        }
+        // a mensagem do usuário continua na tela; só não há resposta
+      } finally {
+        sendingRef.current = false;
+        abortRef.current = null;
+        setPendingId(null);
+        setSearching(false);
+      }
+    },
+    [append, searchEnabled]
+  );
+
+  /** Envia `text` na conversa ativa, ou cria uma conversa nova se não houver ativa. */
+  const send = useCallback(
+    (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed || sendingRef.current) return;
+      const userMsg: UiMessage = { id: uid(), role: "user", content: trimmed };
+      const current = activeRef.current;
+      let convId: string;
+      let base: UiMessage[];
+      if (current) {
+        convId = current.id;
+        base = current.messages;
+        append(convId, userMsg);
+      } else {
+        convId = create(userMsg);
+        base = [];
+      }
+      void submit(convId, trimmed, base);
+    },
+    [append, create, submit]
+  );
+
+  /** Reenvia a última mensagem do usuário (a que ficou sem resposta) sem duplicar o balão. */
+  const retry = useCallback(() => {
+    const current = activeRef.current;
+    if (!current || sendingRef.current) return;
+    const last = current.messages[current.messages.length - 1];
+    if (!last || last.role !== "user") return;
+    void submit(current.id, last.content, current.messages.slice(0, -1));
+  }, [submit]);
+
+  /** Interrompe a espera pela resposta. O servidor pode já ter contado a mensagem na cota diária. */
+  const stop = useCallback(() => abortRef.current?.abort(), []);
+
+  return { pendingId, searching, error, retryIn, locked: pendingId !== null, send, retry, stop };
+}
